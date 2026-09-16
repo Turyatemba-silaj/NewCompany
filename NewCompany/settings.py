@@ -10,7 +10,9 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,12 +22,16 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-fs863d0o2n6!2h*4cbhum3^&pi&wgkb%s!fi^vx0%in*an1b0k'
+SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fs863d0o2n6!2h*4cbhum3^&pi&wgkb%s!fi^vx0%in*an1b0k')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost,.vercel.app').split(',')
+    if host.strip()
+]
 
 
 # Application definition
@@ -75,8 +81,28 @@ WSGI_APPLICATION = 'NewCompany.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-DATABASES = {
-    "default": {
+DATABASE_URL = os.environ.get('DATABASE_URL')
+
+if DATABASE_URL:
+    parsed_database_url = urlparse(DATABASE_URL)
+    database_options = {}
+    database_query = parse_qs(parsed_database_url.query)
+    if database_query.get("sslmode"):
+        database_options["sslmode"] = database_query["sslmode"][0]
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": parsed_database_url.path.lstrip("/"),
+            "USER": parsed_database_url.username or "",
+            "PASSWORD": parsed_database_url.password or "",
+            "HOST": parsed_database_url.hostname or "",
+            "PORT": str(parsed_database_url.port or "5432"),
+            "OPTIONS": database_options,
+        }
+    }
+else:
+    DATABASES = {
+        "default": {
         "ENGINE": "django.db.backends.postgresql",
         "NAME": "NewCompany",
         "USER": "postgres",
@@ -121,7 +147,8 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 LOGIN_URL = '/staff/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
