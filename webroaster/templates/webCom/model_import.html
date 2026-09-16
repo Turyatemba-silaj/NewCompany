@@ -1,0 +1,42 @@
+﻿{% extends "webroaster/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' model_name %}">Back</a>
+    </div>
+</div>
+
+<div class="panel">
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        <div class="field">
+            <label for="id_import_file">CSV file</label>
+            <input class="form-control" id="id_import_file" name="import_file" type="file" accept=".csv" required>
+        </div>
+
+        {% if errors %}
+            <div class="message danger">
+                {% for error in errors %}
+                    <div>{{ error }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="panel muted-panel">
+            Required CSV header: {{ import_fields|join:", " }}
+        </div>
+
+        <div class="actions">
+            <button class="btn primary" type="submit">Import CSV</button>
+            <a class="btn" href="{% url 'webroaster:list' model_name %}">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

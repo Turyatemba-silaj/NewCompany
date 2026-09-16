@@ -1,0 +1,16 @@
+﻿<section class="page-heading">
+    <div>
+        <p class="text-sm uppercase tracking-wide text-slate-500 mb-1">{{ department_name }}</p>
+        <h1 class="text-3xl font-semibold text-slate-900">Delete {{ model_name }}</h1>
+    </div>
+</section>
+
+<form method="post" class="surface delete-panel">
+    {% csrf_token %}
+    <p class="mb-4">Are you sure you want to delete <strong>{{ object }}</strong>?</p>
+    <div class="d-flex justify-content-end gap-2">
+        <a class="btn btn-light" href="{% url route_names.detail object.pk %}">Cancel</a>
+        <button class="btn btn-danger" type="submit">Delete</button>
+    </div>
+</form>
+

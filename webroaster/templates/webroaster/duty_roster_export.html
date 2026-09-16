@@ -1,0 +1,46 @@
+﻿{% extends "webroaster/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' 'deployments' %}">Back</a>
+    </div>
+</div>
+
+<div class="panel">
+    <form method="post" novalidate>
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+            {{ form.site.label_tag }}
+            {{ form.site }}
+            {{ form.site.errors }}
+        </div>
+        <div class="field">
+            {{ form.period_start.label_tag }}
+            {{ form.period_start }}
+            {{ form.period_start.errors }}
+        </div>
+        <div class="field">
+            {{ form.period_end.label_tag }}
+            {{ form.period_end }}
+            {{ form.period_end.errors }}
+        </div>
+
+        <div class="panel muted-panel">
+            Exports the monthly roster matrix with Pers No, Grade, Name, Contact, Worked days, and daily D/N/O columns. The schedule rotates guards monthly so the relief guard covers the off-day guard.
+        </div>
+
+        <div class="actions">
+            <button class="btn primary" type="submit">Export Duty Roster</button>
+            <a class="btn" href="{% url 'webroaster:list' 'deployments' %}">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+

@@ -1,0 +1,254 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .checklist-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .checklist-filter {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(190px, 1fr)) minmax(330px, auto);
+        gap: 10px;
+        width: 100%;
+    }
+    .checklist-filter label {
+        margin-bottom: 4px;
+    }
+    .checklist-filter input,
+    .checklist-filter select {
+        max-width: none;
+    }
+    .checklist-filter input[type="date"] {
+        min-width: 190px;
+        padding-right: 42px;
+    }
+    .checklist-filter input[type="date"]::-webkit-calendar-picker-indicator {
+        cursor: pointer;
+        width: 22px;
+        height: 22px;
+        margin-left: 8px;
+        opacity: 1;
+    }
+    .checklist-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        justify-content: flex-end;
+        white-space: nowrap;
+    }
+    .checklist-page {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        padding: 22px;
+    }
+    .checklist-heading {
+        text-align: center;
+        margin-bottom: 16px;
+    }
+    .checklist-heading h1,
+    .checklist-heading h2 {
+        margin: 4px 0;
+        text-transform: uppercase;
+    }
+    .checklist-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0;
+        margin-bottom: 16px;
+        border: 1px solid #cfd6df;
+        border-bottom: 0;
+    }
+    .checklist-meta div {
+        padding: 8px;
+        border-right: 1px solid #cfd6df;
+        border-bottom: 1px solid #cfd6df;
+    }
+    .checklist-meta div:nth-child(4n) {
+        border-right: 0;
+    }
+    .checklist-meta strong {
+        display: block;
+        margin-bottom: 3px;
+    }
+    .checklist-table {
+        width: 100%;
+        border-collapse: collapse;
+        box-shadow: none;
+        border-radius: 0;
+    }
+    .checklist-table th,
+    .checklist-table td {
+        border: 1px solid #cfd6df;
+        padding: 8px;
+        vertical-align: middle;
+    }
+    .checklist-table th {
+        background: #f3f6f9;
+        text-transform: none;
+    }
+    .signature-cell {
+        min-width: 150px;
+        height: 34px;
+    }
+    .checklist-warning {
+        margin: 12px 0;
+        border: 1px solid #f4c430;
+        background: #fffbeb;
+        padding: 10px 12px;
+    }
+    .checklist-footer {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 20px;
+        margin-top: 26px;
+    }
+    .sign-line {
+        border-top: 1px solid #111827;
+        padding-top: 6px;
+        min-height: 34px;
+    }
+    @media (max-width: 900px) {
+        .checklist-actions {
+            flex-direction: column;
+        }
+        .checklist-filter,
+        .checklist-meta,
+        .checklist-footer {
+            grid-template-columns: 1fr;
+        }
+        .checklist-meta div {
+            border-right: 0;
+        }
+    }
+    @media print {
+        .sidebar,
+        .top-strip,
+        .checklist-actions {
+            display: none;
+        }
+        .app-shell {
+            display: block;
+        }
+        main {
+            width: 100%;
+            margin: 0;
+        }
+        .checklist-page {
+            border: 0;
+            padding: 0;
+        }
+        .checklist-table th,
+        .checklist-table td,
+        .checklist-meta div {
+            padding: 6px;
+        }
+    }
+</style>
+
+<div class="checklist-actions">
+    <form class="panel checklist-filter" method="get">
+        <div>
+            {{ form.deployment_area.label_tag }}
+            {{ form.deployment_area }}
+            {{ form.deployment_area.errors }}
+        </div>
+        <div>
+            {{ form.shift_type.label_tag }}
+            {{ form.shift_type }}
+            {{ form.shift_type.errors }}
+        </div>
+        <div>
+            {{ form.checklist_date.label_tag }}
+            {{ form.checklist_date }}
+            {{ form.checklist_date.errors }}
+        </div>
+        <div class="checklist-buttons">
+            <button class="btn primary" type="submit">Generate</button>
+            <button class="btn" type="submit" name="export" value="excel">Export Excel</button>
+            <button class="btn" type="button" onclick="window.print()">Print</button>
+            <a class="btn" href="{% url 'webroaster:list' 'attendance' %}">Back</a>
+        </div>
+    </form>
+</div>
+
+<section class="checklist-page">
+    <div class="checklist-heading">
+        <h1>{{ company_name }}</h1>
+        <h2>Supervisor Duty Checklist</h2>
+    </div>
+
+    <div class="checklist-meta">
+        <div><strong>Deployment Area</strong>{{ selected.deployment_area|default:"-" }}</div>
+        <div><strong>Shift Type</strong>{{ selected.shift_label|default:"-" }}</div>
+        <div><strong>Duty Date</strong>{{ selected.checklist_date|default:"-" }}</div>
+        <div><strong>Prepared At</strong>{{ prepared_at|date:"Y-m-d H:i" }}</div>
+    </div>
+
+    {% if shortage_rows %}
+        <div class="checklist-warning">
+            {% for row in shortage_rows %}
+                <div>{{ row.site }}: {{ row.available_count|thousands }} available for {{ row.required_count|thousands }} required; shortage {{ row.shortage_count|thousands }}.</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="table-scroll">
+        <table class="checklist-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Site</th>
+                    <th>Client</th>
+                    <th>Shift</th>
+                    <th>Pers No</th>
+                    <th>Guard Name</th>
+                    <th>Phone</th>
+                    <th>Time In</th>
+                    <th>Signature In</th>
+                    <th>Time Out</th>
+                    <th>Signature Out</th>
+                    <th>Condition</th>
+                    <th>Remarks</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in checklist_rows %}
+                    <tr>
+                        <td>{{ forloop.counter|thousands }}</td>
+                        <td>{{ row.site }}</td>
+                        <td>{{ row.client|default:"-" }}</td>
+                        <td>{{ row.shift_label }}</td>
+                        <td>{{ row.employee_number }}</td>
+                        <td>{{ row.guard.first_name }} {{ row.guard.last_name }}</td>
+                        <td>{{ row.phone_number|default:"-" }}</td>
+                        <td></td>
+                        <td class="signature-cell"></td>
+                        <td></td>
+                        <td class="signature-cell"></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="13">No guards found for the selected deployment area, shift type, and duty date.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="checklist-footer">
+        <div class="sign-line">Supervisor Name / Signature</div>
+        <div class="sign-line">Control Room</div>
+        <div class="sign-line">Operations Manager</div>
+    </div>
+</section>
+{% endblock %}
+

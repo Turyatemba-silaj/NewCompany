@@ -1,0 +1,104 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .report-page {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        padding: 22px;
+    }
+    .report-heading {
+        text-align: center;
+        margin-bottom: 18px;
+    }
+    .report-heading h1 {
+        margin: 4px 0;
+        text-transform: uppercase;
+    }
+    .report-table {
+        width: 100%;
+        border-collapse: collapse;
+        box-shadow: none;
+        border-radius: 0;
+    }
+    .report-table th,
+    .report-table td {
+        border: 1px solid #cfd6df;
+        padding: 8px;
+        vertical-align: top;
+    }
+    .report-table th {
+        background: #f3f6f9;
+        text-transform: none;
+    }
+    .report-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    @media print {
+        .sidebar,
+        .top-strip,
+        .report-actions {
+            display: none;
+        }
+        .app-shell { display: block; }
+        main { width: 100%; margin: 0; }
+        .report-page { border: 0; padding: 0; }
+    }
+</style>
+
+<div class="report-actions">
+    <a class="btn" href="{% url 'webroaster:list' 'assets' %}">Back</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print</button>
+</div>
+
+<section class="report-page">
+    <div class="report-heading">
+        <h1>Asset Store Report</h1>
+    </div>
+
+    <div class="table-scroll">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Asset Type</th>
+                    <th>Asset Name</th>
+                    <th>Serial Number</th>
+                    <th>Store Quantity</th>
+                    <th>Assets Issued Out</th>
+                    <th>Stock Balance</th>
+                    <th>Low Stock Message</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report_rows %}
+                    <tr>
+                        <td>{{ forloop.counter|thousands }}</td>
+                        <td>{{ row.asset.get_asset_type_display }}</td>
+                        <td>{{ row.asset.asset_name }}</td>
+                        <td>{{ row.asset.asset_number|default:"-" }}</td>
+                        <td>{{ row.store_quantity|thousands }}</td>
+                        <td><a class="action-btn workflow" href="{% url 'webroaster:asset_issued_out_detail' %}?{{ row.asset.group_query }}" title="View issued out details">{{ row.assets_issued_out|thousands }}</a></td>
+                        <td>{{ row.stock_balance|thousands }}</td>
+                        <td>{{ row.low_stock_message }}</td>
+                        <td>{{ row.notes }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="9"></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+
+

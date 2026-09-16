@@ -1,0 +1,135 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}Procurement{% endblock %}
+
+{% block content %}
+<style>
+    .procurement-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+
+
+    .procurement-workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
+        gap: 14px;
+        align-items: start;
+    }
+    .queue-stack { display: grid; gap: 14px; }
+    .register-strip {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        gap: 10px;
+    }
+    .register-tile {
+        border: 1px solid #d7dde5;
+        border-radius: 8px;
+        background: #fff;
+        padding: 10px;
+    }
+    .register-tile strong { display: block; font-size: 20px; color: #111827; }
+    .register-tile span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+    .register-tile a { display: inline-block; margin-top: 6px; }
+    @media (max-width: 1120px) {
+    
+</style>
+
+<div class="topbar">
+    <div>
+        <h1>Procurement</h1>
+    </div>
+    <div class="procurement-actions">
+        <a class="btn primary" href="{% url 'webroaster:create' 'procurement-requisitions' %}">New Request</a>
+        <a class="btn" href="{% url 'webroaster:create' 'supplier-proformas' %}">Record Quote</a>
+        <a class="btn primary" href="{% url 'webroaster:create' 'purchase-orders' %}">Create LPO</a>
+        <a class="btn" href="{% url 'webroaster:list' 'purchase-orders' %}">LPO Reports</a>
+        <a class="btn" href="{% url 'webroaster:home' %}">Dashboard</a>
+    </div>
+</div>
+
+
+<section class="procurement-workspace">
+    <div class="queue-stack">
+        <article class="visual-panel">
+            <div class="section-heading-row"><div><h2>To Approve</h2></div></div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>Request</th><th>Requester</th><th>Amount</th><th></th></tr></thead>
+                    <tbody>
+                    {% for req in pending_requisitions %}
+                        <tr>
+                            <td>{{ req.requisition_number }} - {{ req.title }}</td>
+                            <td>{{ req.requested_by|default:"-" }}</td>
+                            <td>{{ req.estimated_amount|thousands }}</td>
+                            <td><a class="btn primary" href="{% url 'webroaster:create' 'procurement-approvals' %}?requisition={{ req.pk }}">Approve</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4">No requests waiting for approval.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="visual-panel">
+            <div class="section-heading-row"><div><h2>To Contact Supplier</h2></div></div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>Request</th><th>Supplier</th><th>Amount</th><th></th></tr></thead>
+                    <tbody>
+                    {% for req in approved_requisitions %}
+                        <tr>
+                            <td>{{ req.requisition_number }} - {{ req.title }}</td>
+                            <td>{{ req.preferred_supplier|default:"-" }}</td>
+                            <td>{{ req.estimated_amount|thousands }}</td>
+                            <td><form method="post" action="{% url 'webroaster:procurement_contact_supplier' req.pk %}">{% csrf_token %}<button class="btn primary" type="submit">Contact</button></form></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4">No approved requests ready for supplier contact.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </article>
+    </div>
+
+    <div class="queue-stack">
+        <article class="visual-panel">
+            <div class="section-heading-row"><div><h2>To Pay</h2></div></div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>Supplier Invoice</th><th>Approved Amount</th><th></th></tr></thead>
+                    <tbody>
+                    {% for payment in pending_payments %}
+                        <tr>
+                            <td>{{ payment.supplier_invoice.invoice_number }}</td>
+                            <td>{{ payment.supplier_invoice.approved_payable_amount|thousands }}</td>
+                            <td><a class="btn primary" href="{% url 'webroaster:update' 'supplier-payments' payment.pk %}">Pay</a></td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="3">No payments waiting.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </article>
+
+        <article class="visual-panel">
+            <div class="section-heading-row"><div><h2>Registers</h2></div></div>
+            <div class="register-strip">
+                {% for card in module_cards %}
+                    <div class="register-tile">
+                        <span>{{ card.label }}</span>
+                        <strong>{{ card.value|thousands }}</strong>
+                        <a href="{% url 'webroaster:list' card.model_name %}">Open</a>
+                    </div>
+                {% endfor %}
+            </div>
+        </article>
+    </div>
+</section>
+{% endblock %}
+
+
+
+

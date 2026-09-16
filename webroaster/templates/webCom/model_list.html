@@ -1,0 +1,206 @@
+﻿{% extends "webroaster/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="actions">
+        {% if model_name == "deployments" or model_name == "sites" %}<a class="btn" href="{% url 'webroaster:duty_roster_upload' %}">Upload Duty Roster</a>{% endif %}
+        {% if model_name == "deployments" or model_name == "sites" %}<a class="btn primary" href="{% url 'webroaster:duty_roster_export' %}">Export Duty Roster</a>{% endif %}
+        {% if model_name == "deployments" %}<a class="btn" href="{% url 'webroaster:supervisor_checklist' %}">Supervisor Checklist</a>{% endif %}
+        {% if model_name == "assets" %}<a class="btn" href="{% url 'webroaster:asset_store_report' %}">Report</a>{% endif %}
+        {% if model_name == "asset-assignments" %}<a class="btn" href="{% url 'webroaster:asset_assignment_report' %}">Report</a>{% endif %}
+        {% if model_name == "incidents" %}<a class="btn" href="{% url 'webroaster:incident_report' %}">Report</a>{% endif %}
+        {% if model_name == "incidents" %}<a class="btn" href="{% url 'webroaster:incident_notifications' %}">Notifications</a>{% endif %}
+        {% if model_name == "leaves" %}<a class="btn" href="{% url 'webroaster:leave_notifications' %}">Notifications</a>{% endif %}
+        {% if model_name == "disciplinary-actions" %}<a class="btn" href="{% url 'webroaster:disciplinary_notifications' %}">Notifications</a>{% endif %}
+        {% if model_name == "budgets" %}<a class="btn" href="{% url 'webroaster:budget_report' %}">Budget Report</a>{% endif %}
+        {% if model_name == "expenses" %}<a class="btn" href="{% url 'webroaster:expense_report' %}">Accountability Report</a>{% endif %}
+        {% if model_name == "paymees" %}<a class="btn primary" href="{% url 'webroaster:aging_report' %}">Aging Report</a>{% endif %}
+        {% if not managed_table %}<a class="btn" href="{% url 'webroaster:import' model_name %}">Import CSV</a>{% endif %}
+        <a class="btn" href="{% url 'webroaster:export' model_name %}">Export Table CSV</a>
+        {% if not managed_table %}<a class="btn primary" href="{% url 'webroaster:create' model_name %}">Add</a>{% endif %}
+        <a class="btn" href="{% url 'webroaster:home' %}">Dashboard</a>
+    </div>
+</div>
+
+{% if rows %}
+    <div class="selection-bar" data-selection-bar hidden>
+        <span><strong data-selected-count>0</strong> selected</span>
+        <span class="selection-actions">
+            <button class="btn" type="button" data-copy-selected>Copy IDs</button>
+            <button class="btn" type="button" data-clear-selection>Clear</button>
+        </span>
+    </div>
+    <div class="table-scroll">
+    <table class="{% if model_name == 'incidents' %}compact-table{% endif %}">
+        <thead>
+            <tr>
+                <th class="record-select-col"><input type="checkbox" data-select-all aria-label="Select all records"></th>
+                {% for field_label in field_labels %}
+                    <th>{{ field_label }}</th>
+                {% endfor %}
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr data-record-row data-record-id="{{ row.pk }}">
+                    <td class="record-select-col"><input type="checkbox" data-record-select value="{{ row.pk }}" aria-label="Select record {{ row.pk }}"></td>
+                    {% for cell in row.cells %}
+                        <td>
+                            {% if model_name == "job-applications" and cell.field == "resume" %}
+                                {% if row.object.resume %}
+                                    <div class="row-actions">
+                                        <a class="action-btn view" href="{% url 'webroaster:job_application_resume' row.pk %}" target="_blank" rel="noopener" title="View resume">View</a>
+                                        <a class="action-btn secondary" href="{% url 'webroaster:job_application_resume' row.pk %}?download=1" title="Download resume">Download</a>
+                                    </div>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            {% elif model_name == "assets" and cell.field == "assets_issued_out" %}
+                                <a class="action-btn workflow" href="{% url 'webroaster:asset_issued_out_detail' %}?{{ row.object.group_query }}" title="View issued out details">{{ cell.value }}</a>
+                            {% else %}
+                                {{ cell.value }}
+                            {% endif %}
+                        </td>
+                    {% endfor %}
+                    <td class="row-actions-cell">
+                        <div class="row-actions">
+                            <div class="row-action-group">
+                                {% if model_name == "assets" %}
+                                    <a class="action-btn view" href="{% url 'webroaster:asset_group_detail' %}?{{ row.object.group_query }}" title="View asset group">Details</a>
+                                {% else %}
+                                    <a class="action-btn view" href="{% url 'webroaster:detail' model_name row.pk %}" title="View record">View</a>
+                                {% endif %}
+                                {% if model_name == "employees" and row.object.can_transfer %}<a class="action-btn workflow" href="{% url 'webroaster:employee_transfer' row.pk %}" title="Transfer employee">Transfer</a>{% endif %}
+                                {% if model_name == "leaves" %}<a class="action-btn workflow" href="{% url 'webroaster:leave_review' row.pk %}" title="Review leave">Review</a>{% endif %}
+                                {% if model_name == "incidents" %}<a class="action-btn workflow" href="{% url 'webroaster:incident_manage' row.pk %}" title="Manage incident">Manage</a>{% endif %}
+                                {% if model_name == "incidents" %}<a class="action-btn secondary" href="{% url 'webroaster:incident_investigation_report' row.pk %}" title="Create investigation report">Report</a>{% endif %}
+                                {% if model_name == "job-applications" and row.object.resume %}<a class="action-btn workflow" href="{% url 'webroaster:job_application_resume' row.pk %}" target="_blank" rel="noopener" title="View resume">Resume</a>{% endif %}
+                                {% if model_name == "salaries" %}<a class="action-btn workflow" href="{% url 'webroaster:salary_payslip' row.pk %}" title="Open payslip">Payslip</a>{% endif %}
+                                {% if model_name == "invoices" %}<a class="action-btn workflow" href="{% url 'webroaster:invoice_document' row.pk %}" title="Open invoice">Invoice</a>{% endif %}
+                                {% if model_name == "payments" %}<a class="action-btn workflow" href="{% url 'webroaster:payment_receipt' row.pk %}" title="Open receipt">Receipt</a>{% endif %}
+                                {% if model_name == "payments" %}<a class="action-btn secondary" href="{% url 'webroaster:payment_reconciliation' row.pk %}" title="Open reconciliation">Reconcile</a>{% endif %}
+                                {% if model_name == "purchase-orders" %}<a class="action-btn workflow" href="{% url 'webroaster:purchase_order_lpo_report' row.pk %}" title="Open LPO">LPO</a>{% endif %}
+                                {% if model_name == "training" %}<a class="action-btn workflow" href="{% url 'webroaster:training_certificate' row.pk %}" title="Generate certificate">Certificate</a>{% endif %}
+                                {% if model_name == "procurement-requisitions" and row.object.can_contact_supplier %}<form method="post" action="{% url 'webroaster:procurement_contact_supplier' row.pk %}">{% csrf_token %}<button class="action-btn workflow" type="submit" title="Contact supplier">Contact</button></form>{% endif %}
+                            </div>
+                            {% if not managed_table and model_name != "assets" %}
+                                <div class="row-action-group maintenance">
+                                    <a class="action-btn secondary" href="{% url 'webroaster:update' model_name row.pk %}" title="Edit record">Edit</a>
+                                    <a class="action-btn danger" href="{% url 'webroaster:delete' model_name row.pk %}" title="Delete record">Delete</a>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+{% else %}
+    <div class="panel"></div>
+{% endif %}
+<script>
+    (function () {
+        const rows = Array.from(document.querySelectorAll("[data-record-row]"));
+        if (!rows.length) return;
+        const selectAll = document.querySelector("[data-select-all]");
+        const selectionBar = document.querySelector("[data-selection-bar]");
+        const selectedCount = document.querySelector("[data-selected-count]");
+        const clearButton = document.querySelector("[data-clear-selection]");
+        const copyButton = document.querySelector("[data-copy-selected]");
+
+        function selectedInputs() {
+            return rows.map(row => row.querySelector("[data-record-select]")).filter(input => input && input.checked);
+        }
+
+        function syncSelection() {
+            const selected = selectedInputs();
+            rows.forEach(function (row) {
+                const input = row.querySelector("[data-record-select]");
+                row.classList.toggle("record-selected", Boolean(input && input.checked));
+            });
+            if (selectedCount) selectedCount.textContent = String(selected.length);
+            if (selectionBar) selectionBar.hidden = selected.length === 0;
+            if (selectAll) {
+                selectAll.checked = selected.length === rows.length;
+                selectAll.indeterminate = selected.length > 0 && selected.length < rows.length;
+            }
+        }
+
+        rows.forEach(function (row) {
+            const input = row.querySelector("[data-record-select]");
+            if (!input) return;
+            input.addEventListener("change", syncSelection);
+            row.addEventListener("click", function (event) {
+                if (event.target.closest("a, button, input, select, textarea, form")) return;
+                input.checked = !input.checked;
+                syncSelection();
+            });
+        });
+
+        if (selectAll) {
+            selectAll.addEventListener("change", function () {
+                rows.forEach(function (row) {
+                    const input = row.querySelector("[data-record-select]");
+                    if (input) input.checked = selectAll.checked;
+                });
+                syncSelection();
+            });
+        }
+        if (clearButton) {
+            clearButton.addEventListener("click", function () {
+                rows.forEach(function (row) {
+                    const input = row.querySelector("[data-record-select]");
+                    if (input) input.checked = false;
+                });
+                syncSelection();
+            });
+        }
+        if (copyButton) {
+            copyButton.addEventListener("click", async function () {
+                const ids = selectedInputs().map(input => input.value).join(", ");
+                if (!ids) return;
+                try {
+                    await navigator.clipboard.writeText(ids);
+                    copyButton.textContent = "Copied";
+                    window.setTimeout(function () { copyButton.textContent = "Copy IDs"; }, 1200);
+                } catch (error) {
+                    window.prompt("Selected record IDs", ids);
+                }
+            });
+        }
+        syncSelection();
+    })();
+</script>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,206 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .invoice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+    .invoice-sheet,
+    .invoice-sheet * { box-sizing: border-box; }
+    .invoice-sheet {
+        width: 100%;
+        max-width: 794px;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid #cfd8e3;
+        color: #111827;
+        padding: 18px 22px;
+        font-size: 11px;
+        line-height: 1.25;
+        overflow: hidden;
+    }
+    .invoice-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 230px;
+        gap: 16px;
+        align-items: start;
+        border-bottom: 2px solid #24466f;
+        padding-bottom: 12px;
+        min-width: 0;
+    }
+    .company-name { margin: 0; font-size: 18px; font-weight: 500; line-height: 1.15; color: #002b4f; letter-spacing: 0; text-transform: uppercase; }
+    .company-subtitle { margin-top: 6px; color: #24466f; font-size: 11px; }
+    .invoice-title-box { border: 1px solid #cfd8e3; width: 100%; max-width: 230px; justify-self: end; background: #fff; }
+    .invoice-title-box h2 { margin: 0; background: #24466f; color: #fff; font-size: 18px; font-weight: 500; padding: 8px 10px; letter-spacing: 0; }
+    .invoice-meta { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .invoice-meta th,
+    .invoice-meta td { padding: 5px 8px; border-top: 1px solid #d7dde5; font-size: 10.5px; vertical-align: top; }
+    .invoice-meta th { width: 45%; text-align: left; color: #24466f; background: #edf2f7; font-weight: 500; text-transform: uppercase; }
+    .invoice-meta td { font-weight: 600; }
+    .status-pill { display: inline-block; border: 1px solid #9fb3c8; color: #102a43; padding: 1px 6px; font-weight: 700; font-size: 9.5px; text-transform: uppercase; }
+    .invoice-parties { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; min-width: 0; }
+    .info-block { border: 1px solid #cfd8e3; min-width: 0; }
+    .info-block h3 { margin: 0; background: #f3f6f9; border-bottom: 1px solid #d7dde5; padding: 6px 8px; color: #002b4f; font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0; }
+    .info-body { padding: 8px; min-height: 86px; line-height: 1.28; font-size: 10.5px; overflow-wrap: anywhere; }
+    .info-body strong { color: #111827; }
+    .invoice-section { margin-top: 11px; }
+    .section-title { margin: 0 0 6px; color: #002b4f; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0; }
+    .line-items,
+    .payments-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10.5px; }
+    .line-items th,
+    .line-items td,
+    .payments-table th,
+    .payments-table td { border: 1px solid #d7dde5; padding: 6px 7px; vertical-align: top; overflow-wrap: anywhere; }
+    .line-items th,
+    .payments-table th { background: #24466f; color: #fff; text-align: left; font-weight: 700; }
+    .line-items th:nth-child(1) { width: 20%; }
+    .line-items th:nth-child(2) { width: 38%; }
+    .line-items th:nth-child(3) { width: 12%; }
+    .line-items th:nth-child(4),
+    .line-items th:nth-child(5) { width: 15%; }
+    .numeric { text-align: right; white-space: nowrap; }
+    .invoice-bottom { display: flex; justify-content: flex-end; margin-top: 10px; }
+    .totals-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10.5px; }
+    .totals-table th,
+    .totals-table td { border: 1px solid #d7dde5; padding: 6px 8px; }
+    .totals-table th { width: 58%; text-align: left; background: #f3f6f9; color: #102a43; font-weight: 500; text-transform: uppercase; }
+    .totals-table .grand-total th,
+    .totals-table .grand-total td { background: #24466f; color: #fff; font-size: 12px; font-weight: 800; }
+    @page { size: A4; margin: 10mm; }
+    @media (max-width: 780px) {
+        .invoice-sheet { padding: 14px; }
+        .invoice-header,
+        .invoice-parties { grid-template-columns: 1fr; }
+        .invoice-title-box { max-width: none; justify-self: stretch; }
+    }
+    @media print {
+        .sidebar, .top-strip, .invoice-actions { display: none; }
+        .app-shell { display: block; }
+        main { width: 100%; margin: 0; padding: 0; }
+        body { background: #fff; }
+        .invoice-sheet { border: 0; max-width: none; padding: 0; font-size: 10px; }
+        .line-items, .payments-table, .totals-table { font-size: 9.5px; }
+        .invoice-section { margin-top: 8px; }
+    }
+</style>
+
+<div class="invoice-actions">
+    <a class="btn" href="{% url 'webroaster:list' 'invoices' %}">Back</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print Invoice</button>
+</div>
+
+<section class="invoice-sheet">
+    <header class="invoice-header">
+        <div>
+            <h1 class="company-name">{{ company_name }}</h1>
+            <div class="company-subtitle">Security services invoice</div>
+        </div>
+        <div class="invoice-title-box">
+            <h2>INVOICE</h2>
+            <table class="invoice-meta">
+                <tbody>
+                    <tr><th>Invoice No.</th><td>{{ invoice.invoice_number|default:invoice.invoice_id }}</td></tr>
+                    <tr><th>Status</th><td><span class="status-pill">{{ invoice.get_status_display }}</span></td></tr>
+                    <tr><th>Invoice Date</th><td>{{ invoice.invoice_date }}</td></tr>
+                    <tr><th>Due Date</th><td>{{ invoice.due_date }}</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </header>
+
+    <div class="invoice-parties">
+        <section class="info-block">
+            <h3>Bill To</h3>
+            <div class="info-body">
+                <strong>{{ client.client_name }}</strong><br>
+                Contact: {{ client.contact_person }}<br>
+                Phone: {{ client.phone_number }}<br>
+                Email: {{ client.email }}<br>
+                {{ client.address }}
+            </div>
+        </section>
+        <section class="info-block">
+            <h3>Contract Details</h3>
+            <div class="info-body">
+                <strong>{% if contract %}{{ contract.contract_number|default:contract }}{% else %}-{% endif %}</strong><br>
+                Contract: {% if contract %}{{ contract }}{% else %}-{% endif %}<br>
+                Billing Period: {{ invoice.billing_start_date|default:invoice.invoice_date }} to {{ invoice.billing_end_date|default:invoice.due_date }}<br>
+                Sites: {{ invoice.invoiced_site_count|thousands }}<br>
+                Guards: {{ invoice.deployed_guards|thousands }}<br>
+                Rate per Guard: {{ invoice.rate_per_guard|thousands }}
+            </div>
+        </section>
+    </div>
+
+    <section class="invoice-section">
+        <h3 class="section-title">Invoice Charges</h3>
+        <table class="line-items">
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th class="numeric">Quantity</th>
+                    <th class="numeric">Rate</th>
+                    <th class="numeric">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in invoice_lines %}
+                    <tr>
+                        <td>{{ line.category }}</td>
+                        <td>{{ line.description }}</td>
+                        <td class="numeric">{{ line.quantity|thousands }}</td>
+                        <td class="numeric">{{ line.rate|thousands }}</td>
+                        <td class="numeric">{{ line.amount|thousands }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+
+    <div class="invoice-bottom">
+        <table class="totals-table">
+            <tbody>
+                <tr><th>Subtotal</th><td class="numeric">{{ invoice.contract_amount|thousands }}</td></tr>
+                <tr><th>VAT ({{ invoice.tax_rate|thousands }}%)</th><td class="numeric">{{ invoice.tax_amount|thousands }}</td></tr>
+                <tr><th>Total Including VAT</th><td class="numeric">{{ invoice.total_amount|thousands }}</td></tr>
+                <tr><th>Amount Paid</th><td class="numeric">{{ amount_paid|thousands }}</td></tr>
+                <tr class="grand-total"><th>Balance Due</th><td class="numeric">{{ balance_due|thousands }}</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    {% if payments %}
+        <section class="invoice-section">
+            <h3 class="section-title">Payment History</h3>
+            <table class="payments-table">
+                <thead>
+                    <tr><th>Date</th><th>Method</th><th>Reference</th><th class="numeric">Amount</th></tr>
+                </thead>
+                <tbody>
+                    {% for payment in payments %}
+                        <tr>
+                            <td>{{ payment.payment_date }}</td>
+                            <td>{{ payment.get_payment_method_display }}</td>
+                            <td>{% if payment.transaction_ref %}{{ payment.transaction_ref }}{% else %}-{% endif %}</td>
+                            <td class="numeric">{{ payment.amount|thousands }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+    {% endif %}
+</section>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+

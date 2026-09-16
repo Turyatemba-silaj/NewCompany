@@ -1,0 +1,69 @@
+﻿{% extends "webroaster/base.html" %}
+
+{% block title %}{{ object }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div>
+        <h1>{{ object }}</h1>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' model_name %}">Back</a>
+        {% if model_name == "contracts" %}
+            <a class="btn primary" href="{% url 'webroaster:contract_report' pk %}">Report</a>
+        {% endif %}
+        {% if model_name == "salaries" %}
+            <a class="btn primary" href="{% url 'webroaster:salary_payslip' pk %}">Payslip</a>
+        {% endif %}
+        {% if model_name == "training" %}
+            <a class="btn primary" href="{% url 'webroaster:training_certificate' pk %}">Generate Certificate</a>
+        {% endif %}
+        {% if model_name == "job-applications" and object.resume %}
+            <a class="btn primary" href="{% url 'webroaster:job_application_resume' pk %}" target="_blank" rel="noopener">View Resume</a>
+            <a class="btn" href="{% url 'webroaster:job_application_resume' pk %}?download=1">Download Resume</a>
+        {% endif %}
+        {% if model_name == "employees" and object.can_transfer %}
+            <a class="btn primary" href="{% url 'webroaster:employee_transfer' pk %}">Transfer</a>
+        {% endif %}
+        {% if model_name == "leaves" %}
+            <a class="btn primary" href="{% url 'webroaster:leave_review' pk %}">Review</a>
+        {% endif %}
+        {% if model_name == "purchase-orders" %}
+            <a class="btn primary" href="{% url 'webroaster:purchase_order_lpo_report' pk %}">LPO Report</a>
+        {% endif %}
+        {% if model_name == "payments" %}
+            <a class="btn primary" href="{% url 'webroaster:payment_receipt' pk %}">Receipt</a>
+            <a class="btn" href="{% url 'webroaster:payment_reconciliation' pk %}">Reconciliation</a>
+        {% endif %}
+        {% if model_name == "procurement-requisitions" and object.can_contact_supplier %}
+            <form method="post" action="{% url 'webroaster:procurement_contact_supplier' pk %}">{% csrf_token %}<button class="btn primary" type="submit">Contact Supplier</button></form>
+        {% endif %}
+        {% if not managed_table %}
+            <a class="btn" href="{% url 'webroaster:update' model_name pk %}">Edit</a>
+            <a class="btn danger" href="{% url 'webroaster:delete' model_name pk %}">Delete</a>
+        {% endif %}
+    </div>
+</div>
+
+<div class="panel">
+    <dl class="detail-list">
+        {% for label, value in details %}
+            <dt>{{ label }}</dt>
+            <dd>
+                {% if model_name == "job-applications" and label == "Resume" and object.resume %}
+                    <a class="btn primary" href="{% url 'webroaster:job_application_resume' pk %}" target="_blank" rel="noopener">View Resume</a>
+                    <a class="btn" href="{% url 'webroaster:job_application_resume' pk %}?download=1">Download Resume</a>
+                {% else %}
+                    {{ value }}
+                {% endif %}
+            </dd>
+        {% endfor %}
+    </dl>
+</div>
+{% endblock %}
+
+
+
+
+
+

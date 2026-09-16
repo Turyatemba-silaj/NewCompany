@@ -1,0 +1,109 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .doc-actions { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+    .finance-doc, .finance-doc * { box-sizing: border-box; }
+    .finance-doc { max-width: 794px; margin: 0 auto; background: #fff; border: 1px solid #cfd8e3; color: #111827; padding: 22px; font-size: 11px; line-height: 1.3; }
+    .doc-header { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; border-bottom: 2px solid #24466f; padding-bottom: 12px; }
+    .company-name { margin: 0; font-size: 18px; font-weight: 600; color: #002b4f; text-transform: uppercase; }
+    .company-subtitle { margin-top: 5px; color: #24466f; }
+    .title-box { border: 1px solid #cfd8e3; justify-self: end; width: 100%; max-width: 240px; }
+    .title-box h2 { margin: 0; background: #24466f; color: #fff; padding: 8px 10px; font-size: 18px; font-weight: 600; }
+    .meta-table, .summary-table, .breakdown-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .meta-table th, .meta-table td, .summary-table th, .summary-table td, .breakdown-table th, .breakdown-table td { border: 1px solid #d7dde5; padding: 6px 8px; vertical-align: top; overflow-wrap: anywhere; }
+    .meta-table th, .summary-table th { width: 45%; text-align: left; background: #f3f6f9; color: #102a43; text-transform: uppercase; font-weight: 600; }
+    .status-pill { display: inline-block; border: 1px solid #9fb3c8; padding: 1px 6px; font-weight: 700; font-size: 9.5px; text-transform: uppercase; }
+    .party-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .info-block { border: 1px solid #cfd8e3; }
+    .info-block h3, .section-title { margin: 0; background: #f3f6f9; border-bottom: 1px solid #d7dde5; padding: 6px 8px; color: #002b4f; font-size: 10.5px; text-transform: uppercase; }
+    .info-body { padding: 8px; min-height: 86px; }
+    .amount-panel { margin-top: 14px; border: 2px solid #24466f; display: grid; grid-template-columns: 1fr 230px; align-items: stretch; }
+    .amount-label { padding: 12px; font-size: 12px; color: #002b4f; font-weight: 700; text-transform: uppercase; }
+    .amount-value { background: #24466f; color: #fff; padding: 12px; text-align: right; font-size: 20px; font-weight: 800; }
+    .section { margin-top: 12px; }
+    .breakdown-table th { background: #24466f; color: #fff; text-align: left; }
+    .numeric { text-align: right; white-space: nowrap; }
+    .signature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 32px; }
+    .signature-line { border-top: 1px solid #111827; padding-top: 6px; color: #374151; }
+    @media print { .sidebar, .top-strip, .doc-actions { display: none; } .app-shell { display: block; } main { margin: 0; padding: 0; } body { background: #fff; } .finance-doc { border: 0; max-width: none; padding: 0; } }
+    @media (max-width: 780px) { .doc-header, .party-grid, .amount-panel, .signature-row { grid-template-columns: 1fr; } .title-box { max-width: none; } }
+</style>
+
+<div class="doc-actions">
+    <a class="btn" href="{% url 'webroaster:list' 'payments' %}">Back</a>
+    <a class="btn" href="{% url 'webroaster:payment_reconciliation' payment.pk %}">Reconciliation</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print Receipt</button>
+</div>
+
+<section class="finance-doc">
+    <header class="doc-header">
+        <div>
+            <h1 class="company-name">{{ company_name }}</h1>
+            <div class="company-subtitle">Official client payment receipt</div>
+        </div>
+        <div class="title-box">
+            <h2>RECEIPT</h2>
+            <table class="meta-table">
+                <tbody>
+                    <tr><th>Receipt No.</th><td>{{ receipt_number }}</td></tr>
+                    <tr><th>Payment Date</th><td>{{ payment.payment_date }}</td></tr>
+                    <tr><th>Invoice No.</th><td>{{ invoice.invoice_number|default:invoice.invoice_id }}</td></tr>
+                    <tr><th>Status</th><td><span class="status-pill">{{ payment_record.get_status_display }}</span></td></tr>
+                </tbody>
+            </table>
+        </div>
+    </header>
+
+    <div class="party-grid">
+        <section class="info-block">
+            <h3>Received From</h3>
+            <div class="info-body">
+                <strong>{{ client.client_name }}</strong><br>
+                Contact: {{ client.contact_person }}<br>
+                Phone: {{ client.phone_number }}<br>
+                Email: {{ client.email }}<br>
+                {{ client.address }}
+            </div>
+        </section>
+        <section class="info-block">
+            <h3>Payment Details</h3>
+            <div class="info-body">
+                Method: {{ payment.get_payment_method_display }}<br>
+                Reference: {{ payment.transaction_ref|default:"-" }}<br>
+                Currency: {{ payment_record.currency }}<br>
+                Terms: {{ payment_record.payment_terms }}<br>
+                Remarks: {{ payment.remarks|default:"-" }}
+            </div>
+        </section>
+    </div>
+
+    <div class="amount-panel">
+        <div class="amount-label">Amount Received</div>
+        <div class="amount-value">{{ payment_record.currency }} {{ payment.amount|thousands }}</div>
+    </div>
+
+    <section class="section">
+        <h3 class="section-title">Invoice Balance Position</h3>
+        <table class="summary-table">
+            <tbody>
+                <tr><th>Invoice Total</th><td class="numeric">{{ invoice.total_amount|thousands }}</td></tr>
+                <tr><th>Balance Before This Payment</th><td class="numeric">{{ balance_before|thousands }}</td></tr>
+                <tr><th>This Payment</th><td class="numeric">{{ payment.amount|thousands }}</td></tr>
+                <tr><th>Total Paid To Date</th><td class="numeric">{{ total_paid_to_date|thousands }}</td></tr>
+                <tr><th>Balance After Payment</th><td class="numeric">{{ balance_after|thousands }}</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <div class="signature-row">
+        <div class="signature-line">Received By</div>
+        <div class="signature-line">Client Acknowledgement</div>
+    </div>
+</section>
+{% endblock %}
+
+

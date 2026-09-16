@@ -1,0 +1,288 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .report-page {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        padding: 22px;
+    }
+    .report-heading {
+        text-align: center;
+        margin-bottom: 18px;
+    }
+    .report-heading h1,
+    .report-heading h2 {
+        margin: 4px 0;
+        text-transform: uppercase;
+    }
+    .report-section {
+        margin-top: 18px;
+    }
+    .report-section h3 {
+        margin-bottom: 8px;
+        text-transform: uppercase;
+    }
+    .report-table {
+        width: 100%;
+        border-collapse: collapse;
+        box-shadow: none;
+        border-radius: 0;
+    }
+    .report-table th,
+    .report-table td {
+        border: 1px solid #cfd6df;
+        padding: 8px;
+        vertical-align: top;
+    }
+    .report-table th {
+        background: #f3f6f9;
+        text-transform: none;
+    }
+    .report-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    @media print {
+        .sidebar,
+        .top-strip,
+        .report-actions {
+            display: none;
+        }
+        .app-shell {
+            display: block;
+        }
+        main {
+            width: 100%;
+            margin: 0;
+        }
+        .report-page {
+            border: 0;
+            padding: 0;
+        }
+    }
+</style>
+
+<div class="report-actions">
+    <a class="btn" href="{% url 'webroaster:detail' 'contracts' contract.pk %}">Back</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print</button>
+</div>
+
+<section class="report-page">
+    <div class="report-heading">
+        <h1>The Republic of Uganda</h1>
+        <h2>Service Level Agreement</h2>
+        <div>Contract Report</div>
+    </div>
+
+    <div class="report-section">
+        <h3>Parties</h3>
+        <table class="report-table">
+            <tbody>
+                <tr>
+                    <th>Contract ID</th>
+                    <td>{{ contract.contract_id|thousands }}</td>
+                </tr>
+                <tr>
+                    <th>Contract Number</th>
+                    <td>{{ contract.contract_number }}</td>
+                </tr>
+                <tr>
+                    <th>Service Provider</th>
+                    <td>TURYANS SECURITY COMPANY (U) LIMITED</td>
+                </tr>
+                <tr>
+                    <th>Client</th>
+                    <td>{{ client.client_name }}</td>
+                </tr>
+                <tr>
+                    <th>Contact Person</th>
+                    <td>{{ client.contact_person }}</td>
+                </tr>
+                <tr>
+                    <th>Phone</th>
+                    <td>{{ client.phone_number }}</td>
+                </tr>
+                <tr>
+                    <th>Email</th>
+                    <td>{{ client.email }}</td>
+                </tr>
+                <tr>
+                    <th>Address</th>
+                    <td>{{ client.address }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-section">
+        <h3>Duration</h3>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Start Date</th>
+                    <th>End Date</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ contract.contract_start_date }}</td>
+                    <td>{{ contract.contract_end_date }}</td>
+                    <td>{{ contract.get_contract_status_display }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-section">
+        <h3>Location / Area of Service</h3>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>S/No</th>
+                    <th>Activity</th>
+                    <th>Location</th>
+                    <th>Planned Day</th>
+                    <th>Planned Night</th>
+                    <th>Scheduled Day</th>
+                    <th>Scheduled Night</th>
+                    <th>Scheduled Guards</th>
+                    <th>Rate</th>
+                    <th>Scheduled Total Price</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in site_rows %}
+                    <tr>
+                        <td>{{ forloop.counter|thousands }}</td>
+                        <td>{{ row.site.site_name }}</td>
+                        <td>{{ row.site.site_address }}</td>
+                        <td>{{ row.site.day_shift_guards|thousands }}</td>
+                        <td>{{ row.site.night_shift_guards|thousands }}</td>
+                        <td>{{ row.scheduled_day_guards|thousands }}</td>
+                        <td>{{ row.scheduled_night_guards|thousands }}</td>
+                        <td>{{ row.scheduled_guard_names }}</td>
+                        <td>{{ contract.rate_per_guard|thousands }}</td>
+                        <td>{{ row.scheduled_total_price|thousands }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="10"></td>
+                    </tr>
+                {% endfor %}
+                <tr>
+                    <th colspan="9">Number of Sites</th>
+                    <td>{{ contract.number_of_sites|thousands }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-section">
+        <h3>Security Coverage</h3>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>Coverage Type</th>
+                    <th>Day Shift Guards</th>
+                    <th>Night Shift Guards</th>
+                    <th>Total Guards</th>
+                    <th>Rate Per Guard</th>
+                    <th>Guard Contract Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Planned</td>
+                    <td>{{ contract.day_shift_guards|thousands }}</td>
+                    <td>{{ contract.night_shift_guards|thousands }}</td>
+                    <td>{{ contract.number_of_guards|thousands }}</td>
+                    <td>{{ contract.rate_per_guard|thousands }}</td>
+                    <td>{{ contract.guard_contract_value|thousands }}</td>
+                </tr>
+                <tr>
+                    <td>Scheduled</td>
+                    <td>{{ total_scheduled_day_guards|thousands }}</td>
+                    <td>{{ total_scheduled_night_guards|thousands }}</td>
+                    <td>{{ total_scheduled_guards|thousands }}</td>
+                    <td>{{ contract.rate_per_guard|thousands }}</td>
+                    <td>{{ scheduled_guard_contract_value|thousands }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-section">
+        <h3>Deliverables</h3>
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Item Name</th>
+                    <th>Quantity</th>
+                    <th>Unit Price</th>
+                    <th>Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for deliverable in deliverables %}
+                    <tr>
+                        <td>{{ forloop.counter|thousands }}</td>
+                        <td>{{ deliverable.item_name }}</td>
+                        <td>{{ deliverable.quantity|thousands }}</td>
+                        <td>{{ deliverable.unit_price|thousands }}</td>
+                        <td>{{ deliverable.amount|thousands }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5"></td>
+                    </tr>
+                {% endfor %}
+                <tr>
+                    <th colspan="4">Deliverables Value</th>
+                    <td>{{ contract.deliverables_value|thousands }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="report-section">
+        <h3>Consideration</h3>
+        <table class="report-table">
+            <tbody>
+                <tr>
+                    <th>Guard Contract Value</th>
+                    <td>{{ contract.guard_contract_value|thousands }}</td>
+                </tr>
+                <tr>
+                    <th>Deliverables Value</th>
+                    <td>{{ contract.deliverables_value|thousands }}</td>
+                </tr>
+                <tr>
+                    <th>Total Contract Value</th>
+                    <td>{{ contract.contract_value|thousands }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,24 @@
+﻿{% load webroaster_extras %}
+<section class="page-heading">
+    <div>
+        <p class="text-sm uppercase tracking-wide text-slate-500 mb-1">{{ department_name }}</p>
+        <h1 class="text-3xl font-semibold text-slate-900">{{ object }}</h1>
+    </div>
+    <div class="d-flex gap-2">
+        <a class="btn btn-outline-secondary" href="{% url route_names.list %}">Back</a>
+        <a class="btn btn-primary" href="{% url route_names.update object.pk %}">Edit</a>
+        <a class="btn btn-outline-danger" href="{% url route_names.delete object.pk %}">Delete</a>
+    </div>
+</section>
+
+<div class="surface">
+    <dl class="detail-grid">
+        {% for field in fields %}
+            <div>
+                <dt>{{ field|title }}</dt>
+                <dd>{{ object|field_value:field }}</dd>
+            </div>
+        {% endfor %}
+    </dl>
+</div>
+

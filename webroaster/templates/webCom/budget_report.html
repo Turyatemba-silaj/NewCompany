@@ -1,0 +1,152 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .report-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-bottom: 12px;
+    }
+    .report-page {
+        background: #ffffff;
+        border: 1px solid var(--line);
+        padding: 22px;
+    }
+    .report-heading {
+        text-align: center;
+        margin-bottom: 18px;
+    }
+    .report-heading h1 {
+        margin: 4px 0;
+        text-transform: uppercase;
+    }
+    .report-meta {
+        color: var(--muted);
+        font-size: 13px;
+    }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .summary-box {
+        border: 1px solid #cfd6df;
+        padding: 10px;
+        background: #f8fafc;
+    }
+    .summary-box span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 4px;
+    }
+    .summary-box strong {
+        display: block;
+        font-size: 16px;
+    }
+    .report-table {
+        width: 100%;
+        border-collapse: collapse;
+        box-shadow: none;
+        border-radius: 0;
+    }
+    .report-table th,
+    .report-table td {
+        border: 1px solid #cfd6df;
+        padding: 8px;
+        vertical-align: top;
+    }
+    .report-table th {
+        background: #f3f6f9;
+        text-transform: none;
+    }
+    .numeric {
+        text-align: right;
+        white-space: nowrap;
+    }
+    @media (max-width: 900px) {
+        .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media print {
+        .sidebar,
+        .top-strip,
+        .report-actions {
+            display: none;
+        }
+        .app-shell { display: block; }
+        main { width: 100%; margin: 0; }
+        .report-page { border: 0; padding: 0; }
+    }
+</style>
+
+<div class="report-actions">
+    <a class="btn" href="{% url 'webroaster:list' 'budgets' %}">Back</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print</button>
+</div>
+
+<section class="report-page">
+    <div class="report-heading">
+        <h1>Budget Report</h1>
+        <div class="report-meta">Prepared on {% now "Y-m-d H:i" %}</div>
+    </div>
+
+    <div class="summary-grid">
+        <div class="summary-box"><span>Requested</span><strong>{{ total_requested|thousands }}</strong></div>
+        <div class="summary-box"><span>Allocated</span><strong>{{ total_allocated|thousands }}</strong></div>
+        <div class="summary-box"><span>Spent</span><strong>{{ total_spent|thousands }}</strong></div>
+        <div class="summary-box"><span>Remaining</span><strong>{{ total_remaining|thousands }}</strong></div>
+    </div>
+
+    <div class="table-scroll">
+        <table class="report-table">
+            <thead>
+                <tr>
+                    <th>No.</th>
+                    <th>Budget Code</th>
+                    <th>Title</th>
+                    <th>Department</th>
+                    <th>Category</th>
+                    <th>Period</th>
+                    <th>Requested</th>
+                    <th>Allocated</th>
+                    <th>Spent</th>
+                    <th>Remaining</th>
+                    <th>Utilization</th>
+                    <th>Expenses</th>
+                    <th>Approval</th>
+                    <th>Accountability</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report_rows %}
+                    <tr>
+                        <td>{{ forloop.counter|thousands }}</td>
+                        <td>{{ row.budget.budget_code|default:"-" }}</td>
+                        <td>{{ row.budget.budget_title }}</td>
+                        <td>{{ row.budget.get_department_display }}</td>
+                        <td>{{ row.budget.get_budget_category_display }}</td>
+                        <td>{{ row.budget.period_start }} to {{ row.budget.period_end }}</td>
+                        <td class="numeric">{{ row.budget.requested_amount|thousands }}</td>
+                        <td class="numeric">{{ row.budget.allocated_amount|thousands }}</td>
+                        <td class="numeric">{{ row.budget.spent_amount|thousands }}</td>
+                        <td class="numeric">{{ row.budget.remaining_amount|thousands }}</td>
+                        <td class="numeric">{{ row.budget.utilization_rate|thousands }}%</td>
+                        <td class="numeric">{{ row.expense_count|thousands }}</td>
+                        <td>{{ row.budget.get_approval_status_display }}</td>
+                        <td>{{ row.budget.get_accountability_status_display }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="14"></td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -1,0 +1,52 @@
+﻿{% extends "webroaster/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div>
+        <h1>{{ title }}</h1>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' 'deployments' %}">Back</a>
+    </div>
+</div>
+
+<div class="panel">
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="field">
+            {{ form.site.label_tag }}
+            {{ form.site }}
+            {{ form.site.errors }}
+        </div>
+        <div class="field">
+            {{ form.roster_file.label_tag }}
+            {{ form.roster_file }}
+            {{ form.roster_file.errors }}
+        </div>
+
+        {% if errors %}
+            <div class="message danger">
+                {% for error in errors %}
+                    <div>{{ error }}</div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="panel muted-panel">
+            Accepted formats: monthly duty roster matrix with your company header, Deployment Area, Scheduled Period, Pers No, Name, and date columns like Su/26 using D, N, or O; or row CSV with site_id/site_name, guard_id/employee_id/employee_name, shift_date/start_date, optional end_date, shift_type, start_time, hours_per_shift, off.
+        </div>
+
+        <div class="actions">
+            <button class="btn primary" type="submit">Upload Roster</button>
+            <a class="btn" href="{% url 'webroaster:list' 'deployments' %}">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+
+
+

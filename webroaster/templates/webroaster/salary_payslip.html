@@ -1,0 +1,349 @@
+﻿{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .payslip-page {
+        background: #fff;
+        border: 1px solid #cbd5e1;
+        border-top: 4px solid #0f766e;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+        padding: 12px;
+        max-width: 720px;
+        margin: 0 auto;
+        color: #0f172a;
+        font-size: 11px;
+        line-height: 1.25;
+    }
+    .payslip-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: start;
+        border-bottom: 1px solid #0f766e;
+        padding-bottom: 8px;
+        margin-bottom: 8px;
+    }
+    .company-name {
+        font-size: 14px;
+        font-weight: 800;
+        text-transform: uppercase;
+        color: #0f172a;
+        letter-spacing: 0;
+    }
+    .payroll-caption {
+        margin-top: 2px;
+        color: #475569;
+        font-size: 9px;
+    }
+    .document-title {
+        min-width: 160px;
+        text-align: right;
+    }
+    .document-title h1 {
+        font-size: 16px;
+        margin: 0 0 2px;
+        text-transform: uppercase;
+        color: #0f766e;
+    }
+    .period-text {
+        color: #334155;
+        font-size: 9.5px;
+    }
+    .payslip-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border: 1px solid #d6dee8;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 8px;
+    }
+    .meta-cell {
+        min-height: 32px;
+        padding: 5px 6px;
+        border-right: 1px solid #d6dee8;
+        border-bottom: 1px solid #d6dee8;
+        background: #fff;
+        overflow-wrap: anywhere;
+    }
+    .meta-cell:nth-child(4n) { border-right: 0; }
+    .meta-cell:nth-last-child(-n+4) { border-bottom: 0; }
+    .meta-cell strong,
+    .compact-table th {
+        display: block;
+        color: #475569;
+        font-size: 8.5px;
+        line-height: 1.2;
+        text-transform: uppercase;
+    }
+    .meta-cell strong { margin-bottom: 1px; }
+    .pay-summary {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px;
+        margin-bottom: 2px;
+    }
+    .pay-summary-item {
+        border: 1px solid #d6dee8;
+        border-radius: 4px;
+        padding: 6px 8px;
+        background: #f8fafc;
+    }
+    .pay-summary-item strong {
+        display: block;
+        color: #475569;
+        font-size: 8.5px;
+        text-transform: uppercase;
+    }
+    .pay-summary-item span {
+        display: block;
+        margin-top: 2px;
+        font-size: 13px;
+        font-weight: 800;
+    }
+    .pay-summary-item.net {
+        background: #ecfdf5;
+        border-color: #99f6e4;
+        color: #065f46;
+    }
+    .payslip-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        align-items: start;
+    }
+    .payslip-grid-three {
+        grid-template-columns: 1fr 1fr minmax(0, 0.72fr);
+    }
+    .payslip-section {
+        margin-top: 6px;
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+    .payslip-section h2 {
+        font-size: 10px;
+        text-transform: uppercase;
+        margin: 0;
+        padding: 4px 6px;
+        color: #0f766e;
+        background: #f0fdfa;
+        border: 1px solid #ccfbf1;
+        border-bottom: 0;
+        border-radius: 4px 4px 0 0;
+    }
+    .compact-table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        box-shadow: none;
+        border-radius: 0;
+        font-size: 9.5px;
+    }
+    .compact-table th,
+    .compact-table td {
+        border: 1px solid #d6dee8;
+        padding: 3px 4px;
+        text-align: left;
+        vertical-align: middle;
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+    .compact-table th {
+        background: #f8fafc;
+        display: table-cell;
+        width: 62%;
+        font-weight: 700;
+    }
+    .amount {
+        text-align: right;
+        white-space: nowrap;
+        width: 38%;
+    }
+    .metric-table th,
+    .metric-table td {
+        width: 25%;
+    }
+    .statutory-table .amount {
+        text-align: left;
+        white-space: normal;
+    }
+    .summary-row th,
+    .summary-row td {
+        font-weight: 800;
+        background: #eef2f7;
+    }
+    .net-pay {
+        background: #ecfdf5 !important;
+        color: #065f46;
+        font-size: 11px;
+        font-weight: 900;
+    }
+    .payslip-footer {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+    }
+    .sign-line {
+        border-top: 1px solid #111827;
+        padding-top: 3px;
+        min-height: 18px;
+        color: #475569;
+        font-size: 9px;
+    }
+    @media screen and (max-width: 760px) {
+        .payslip-meta,
+        .payslip-grid,
+        .payslip-grid-three {
+            grid-template-columns: 1fr;
+        }
+        .meta-cell { border-right: 0; }
+    }
+    @media print {
+        @page { size: A4; margin: 8mm; }
+        .sidebar, .top-strip, .report-actions { display: none; }
+        .app-shell { display: block; }
+        body { background: #fff; }
+        main { width: 100%; margin: 0; padding: 0; }
+        .payslip-page {
+            border: 0;
+            padding: 0;
+            max-width: 100%;
+            font-size: 9.5px;
+        }
+        .compact-table { font-size: 8.5px; }
+        .compact-table th,
+        .compact-table td { padding: 2px 3px; }
+        .payslip-section { margin-top: 4px; }
+        .payslip-section h2 { font-size: 9px; padding: 3px 5px; }
+        .payslip-footer { margin-top: 12px; }
+        .pay-summary-item { padding: 4px 6px; }
+        .pay-summary-item span { font-size: 11px; }
+    }
+</style>
+
+<div class="report-actions">
+    <a class="btn" href="{% url 'webroaster:list' 'salaries' %}">Back</a>
+    <a class="btn" href="{% url 'webroaster:salary_payslip_pdf' salary.pk %}">Export PDF</a>
+    <button class="btn primary" type="button" onclick="window.print()">Print</button>
+</div>
+
+<section class="payslip-page">
+    <header class="payslip-head">
+        <div>
+            <div class="company-name">TURYANS SECURITY COMPANY (U) LIMITED</div>
+            <div class="payroll-caption">Payroll advice generated from approved attendance and payroll records</div>
+        </div>
+        <div class="document-title">
+            <h1>Payslip</h1>
+            <div class="period-text">{{ salary.period_start_date }} to {{ salary.period_end_date }}</div>
+        </div>
+    </header>
+
+    <div class="payslip-meta">
+        <div class="meta-cell"><strong>Employee</strong>{{ employee }}</div>
+        <div class="meta-cell"><strong>Employee No.</strong>{{ employee.employee_number|default:"-" }}</div>
+        <div class="meta-cell"><strong>Role</strong>{{ employee.get_role_display }}</div>
+        <div class="meta-cell"><strong>Position</strong>{{ employee.get_position_display }}</div>
+        <div class="meta-cell"><strong>NSSF No.</strong>{% if employee.nssf_number %}{{ employee.nssf_number }}{% else %}-{% endif %}</div>
+        <div class="meta-cell"><strong>Pay Period</strong>{{ salary.get_pay_period_display }}</div>
+        <div class="meta-cell"><strong>Period Start</strong>{{ salary.period_start_date }}</div>
+        <div class="meta-cell"><strong>Period End</strong>{{ salary.period_end_date }}</div>
+    </div>
+
+    <div class="pay-summary">
+        <div class="pay-summary-item"><strong>Gross Pay</strong><span>{{ salary.gross_pay|thousands }}</span></div>
+        <div class="pay-summary-item"><strong>Total Deductions</strong><span>{{ salary.total_deductions|thousands }}</span></div>
+        <div class="pay-summary-item net"><strong>Net Pay</strong><span>{{ salary.net_pay|thousands }}</span></div>
+    </div>
+
+    <section class="payslip-section">
+        <h2>Worked Shift Calculation</h2>
+        <table class="compact-table metric-table">
+            <tbody>
+                <tr><th>Shifts Worked</th><td class="amount">{{ salary.shifts_worked|thousands }}</td><th>Overtime Shifts</th><td class="amount">{{ salary.overtime_shifts|thousands }}</td></tr>
+                <tr><th>Daily Rate</th><td class="amount">{{ salary.daily_rate|thousands }}</td><th>Overtime Rate</th><td class="amount">{{ salary.overtime_daily_rate|thousands }}</td></tr>
+                <tr><th>Basic Shift Pay</th><td class="amount">{{ salary.basic_salary|thousands }}</td><th>Overtime Pay</th><td class="amount">{{ salary.overtime_pay|thousands }}</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <div class="payslip-grid">
+        <section class="payslip-section">
+            <h2>Earnings</h2>
+            <table class="compact-table">
+                <tbody>
+                    {% for label, amount in earnings %}
+                        <tr><th>{{ label }}</th><td class="amount">{{ amount|thousands }}</td></tr>
+                    {% endfor %}
+                    <tr class="summary-row"><th>Gross Pay</th><td class="amount">{{ salary.gross_pay|thousands }}</td></tr>
+                </tbody>
+            </table>
+        </section>
+        <section class="payslip-section">
+            <h2>Deductions</h2>
+            <table class="compact-table">
+                <tbody>
+                    {% for label, amount in deductions %}
+                        <tr><th>{{ label }}</th><td class="amount">{{ amount|thousands }}</td></tr>
+                    {% endfor %}
+                    <tr class="summary-row"><th>Total Deductions</th><td class="amount">{{ salary.total_deductions|thousands }}</td></tr>
+                    <tr><th>Advance Balance</th><td class="amount">{{ advance_balance|thousands }}</td></tr>
+                    <tr class="summary-row"><th>Net Pay</th><td class="amount net-pay">{{ salary.net_pay|thousands }}</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+    <div class="payslip-grid payslip-grid-three">
+        <section class="payslip-section">
+            <h2>Uganda Statutory Summary</h2>
+            <table class="compact-table statutory-table">
+                <tbody>
+                    {% for label, value in statutory_summary %}
+                        <tr><th>{{ label }}</th><td class="amount">{{ value|thousands }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="payslip-section">
+            <h2>Net Pay Calculation</h2>
+            <table class="compact-table">
+                <tbody>
+                    {% for label, amount in net_pay_summary %}
+                        <tr{% if forloop.last %} class="summary-row"{% endif %}><th>{{ label }}</th><td class="amount{% if forloop.last %} net-pay{% endif %}">{{ amount|thousands }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+
+        <section class="payslip-section">
+            <h2>Employer Contributions</h2>
+            <table class="compact-table">
+                <tbody>
+                    {% for label, amount in employer_contributions %}
+                        <tr><th>{{ label }}</th><td class="amount">{{ amount|thousands }}</td></tr>
+                    {% endfor %}
+                    <tr class="summary-row"><th>Total NSSF Contribution</th><td class="amount">{{ salary.total_nssf|thousands }}</td></tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+
+    <div class="payslip-footer">
+        <div class="sign-line">Prepared By</div>
+        <div class="sign-line">Checked By</div>
+        <div class="sign-line">Employee Signature</div>
+    </div>
+
+</section>
+{% endblock %}
+
+
+
+
+
+
