@@ -33,6 +33,16 @@ ALLOWED_HOSTS = [
     if host.strip()
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://*.vercel.app').split(',')
+    if origin.strip()
+]
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    ".vercel.app",
+]
 
 # Application definition
 
@@ -92,11 +102,11 @@ if DATABASE_URL:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": parsed_database_url.path.lstrip("/"),
-            "USER": parsed_database_url.username or "",
-            "PASSWORD": parsed_database_url.password or "",
-            "HOST": parsed_database_url.hostname or "",
-            "PORT": str(parsed_database_url.port or "5432"),
+            "NAME": "NewCompany",
+            "USER": "postgres",
+            "PASSWORD": "postgres",
+            "HOST":   "127.0.0.1",
+            "PORT":  "5432",
             "OPTIONS": database_options,
         }
     }
@@ -107,8 +117,8 @@ else:
         "NAME": "NewCompany",
         "USER": "postgres",
         "PASSWORD": "postgres",
-        "HOST": "localhost",
-        "PORT": "5432",
+        "HOST":   "127.0.0.1",
+        "PORT":  "5432",
     }
 }
 
