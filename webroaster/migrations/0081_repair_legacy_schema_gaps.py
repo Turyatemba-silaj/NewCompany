@@ -1,6 +1,19 @@
 from django.db import migrations
 
 
+def table_columns(schema_editor, table_name):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = %s
+            """,
+            [table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
 def repair_legacy_schema_gaps(apps, schema_editor):
     statements = [
         """
@@ -31,10 +44,8 @@ def repair_legacy_schema_gaps(apps, schema_editor):
         "ALTER TABLE assets ADD COLUMN IF NOT EXISTS notes text NULL",
         "ALTER TABLE incidents ADD COLUMN IF NOT EXISTS site_id bigint NULL",
         "ALTER TABLE incidents ADD COLUMN IF NOT EXISTS date_time timestamp with time zone NULL",
-        "UPDATE incidents SET date_time = COALESCE(date_time, incident_date::timestamp with time zone) WHERE date_time IS NULL AND incident_date IS NOT NULL",
         "ALTER TABLE incidents ADD COLUMN IF NOT EXISTS reported_by_id bigint NULL",
         "ALTER TABLE patrol_logs ADD COLUMN IF NOT EXISTS patrol_date date NULL",
-        "UPDATE patrol_logs SET patrol_date = patrol_time::date WHERE patrol_date IS NULL AND patrol_time IS NOT NULL",
         "ALTER TABLE patrol_logs ADD COLUMN IF NOT EXISTS quantity integer NOT NULL DEFAULT 1",
         "ALTER TABLE patrol_logs ADD COLUMN IF NOT EXISTS duration interval NULL",
         "ALTER TABLE patrol_logs ADD COLUMN IF NOT EXISTS issue_date date NULL",
@@ -46,10 +57,39 @@ def repair_legacy_schema_gaps(apps, schema_editor):
         "ALTER TABLE disciplinary_actions ADD COLUMN IF NOT EXISTS reason text NOT NULL DEFAULT ''",
         "ALTER TABLE disciplinary_actions ADD COLUMN IF NOT EXISTS approval_status varchar(20) NOT NULL DEFAULT 'pending'",
         "ALTER TABLE performance_evaluations ADD COLUMN IF NOT EXISTS date date NULL",
-        "UPDATE performance_evaluations SET date = eval_date WHERE date IS NULL AND eval_date IS NOT NULL",
     ]
     for statement in statements:
         schema_editor.execute(statement)
+
+    incident_columns = table_columns(schema_editor, "incidents")
+    if {"date_time", "incident_date"}.issubset(incident_columns):
+        schema_editor.execute(
+            """
+            UPDATE incidents
+            SET date_time = COALESCE(date_time, incident_date::timestamp with time zone)
+            WHERE date_time IS NULL AND incident_date IS NOT NULL
+            """
+        )
+
+    patrol_log_columns = table_columns(schema_editor, "patrol_logs")
+    if {"patrol_date", "patrol_time"}.issubset(patrol_log_columns):
+        schema_editor.execute(
+            """
+            UPDATE patrol_logs
+            SET patrol_date = patrol_time::date
+            WHERE patrol_date IS NULL AND patrol_time IS NOT NULL
+            """
+        )
+
+    performance_columns = table_columns(schema_editor, "performance_evaluations")
+    if {"date", "eval_date"}.issubset(performance_columns):
+        schema_editor.execute(
+            """
+            UPDATE performance_evaluations
+            SET date = eval_date
+            WHERE date IS NULL AND eval_date IS NOT NULL
+            """
+        )
 
 
 class Migration(migrations.Migration):

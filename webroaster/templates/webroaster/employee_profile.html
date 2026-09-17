@@ -1,0 +1,244 @@
+{% extends "webroaster/base.html" %}
+
+{% block title %}{{ employee }} Profile{% endblock %}
+
+{% block content %}
+<style>
+    .employee-profile-head {
+        display: grid;
+        grid-template-columns: 220px minmax(0, 1fr);
+        gap: 14px;
+        align-items: stretch;
+        margin-bottom: 14px;
+    }
+    .employee-photo-panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 8px 26px rgba(24, 39, 55, 0.05);
+    }
+    .employee-photo {
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: #edf2f7;
+        object-fit: cover;
+        display: block;
+    }
+    .employee-photo-placeholder {
+        width: 100%;
+        aspect-ratio: 3 / 4;
+        border-radius: 7px;
+        border: 1px solid var(--line);
+        background: #dbeafe;
+        color: #1e40af;
+        display: grid;
+        place-items: center;
+        font-size: 42px;
+        font-weight: 800;
+    }
+    .employee-profile-summary {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px;
+        box-shadow: 0 8px 26px rgba(24, 39, 55, 0.05);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        gap: 12px;
+    }
+    .employee-profile-summary h1 {
+        font-size: 24px;
+        margin-bottom: 4px;
+    }
+    .profile-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .profile-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        padding: 5px 9px;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        background: #f8fafc;
+        font-weight: 800;
+        color: #334155;
+    }
+    .employee-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 10px;
+    }
+    .employee-detail-item {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        padding: 10px;
+        background: #ffffff;
+        min-width: 0;
+    }
+    .employee-detail-item span {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        margin-bottom: 4px;
+    }
+    .employee-detail-item strong {
+        display: block;
+        overflow-wrap: anywhere;
+    }
+    .profile-sections {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+    }
+    .profile-section {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        box-shadow: 0 8px 26px rgba(24, 39, 55, 0.05);
+    }
+    .profile-section h2 {
+        margin-bottom: 10px;
+    }
+    .profile-line {
+        padding: 8px 0;
+        border-top: 1px solid #edf2f7;
+    }
+    .profile-line:first-of-type {
+        border-top: 0;
+        padding-top: 0;
+    }
+    .profile-line strong,
+    .profile-line span {
+        display: block;
+    }
+    @media (max-width: 760px) {
+        .employee-profile-head {
+            grid-template-columns: 1fr;
+        }
+        .employee-photo-panel {
+            max-width: 260px;
+        }
+    }
+</style>
+
+<div class="topbar">
+    <div>
+        <h1>Employee Profile</h1>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' 'employees' %}">Back</a>
+        <a class="btn" href="{% url 'webroaster:detail' 'employees' employee.pk %}">Details</a>
+        <a class="btn primary" href="{% url 'webroaster:update' 'employees' employee.pk %}">Edit</a>
+    </div>
+</div>
+
+<div class="employee-profile-head">
+    <div class="employee-photo-panel">
+        {% if employee.passport_photo %}
+            <img class="employee-photo" src="{{ employee.passport_photo.url }}" alt="{{ employee }} passport photo">
+        {% else %}
+            <div class="employee-photo-placeholder" aria-label="No passport photo">
+                {{ employee.first_name|slice:":1" }}{{ employee.last_name|slice:":1" }}
+            </div>
+        {% endif %}
+    </div>
+    <section class="employee-profile-summary">
+        <div>
+            <h1>{{ employee }}</h1>
+            <p class="muted">{{ employee.employee_number|default:"No employee number" }}</p>
+        </div>
+        <div class="profile-badges">
+            <span class="profile-badge">{{ employee.get_role_display }}</span>
+            <span class="profile-badge">{{ employee.get_status_display }}</span>
+            <span class="profile-badge">{{ employee.current_deployment_area }}</span>
+            <span class="profile-badge">Daily rate: {{ employee.daily_rate }}</span>
+        </div>
+    </section>
+</div>
+
+<section class="panel">
+    <h2>Employee Details</h2>
+    <div class="employee-detail-grid" style="margin-top: 10px;">
+        {% for label, value in details %}
+            <div class="employee-detail-item">
+                <span>{{ label }}</span>
+                <strong>{{ value }}</strong>
+            </div>
+        {% endfor %}
+    </div>
+</section>
+
+<div class="profile-sections">
+    <section class="profile-section">
+        <h2>Documents</h2>
+        {% for document in documents %}
+            <div class="profile-line">
+                <strong>{{ document.get_doc_type_display }}</strong>
+                <span class="muted">Expiry: {{ document.expiry_date|default:"-" }}</span>
+                {% if document.file_path %}<a href="{{ document.file_path.url }}" target="_blank" rel="noopener">Open file</a>{% endif %}
+            </div>
+        {% empty %}
+            <p class="muted">No documents recorded.</p>
+        {% endfor %}
+    </section>
+
+    <section class="profile-section">
+        <h2>Training</h2>
+        {% for training in trainings %}
+            <div class="profile-line">
+                <strong>{{ training.get_training_name_display }}</strong>
+                <span class="muted">{{ training.start_date }} to {{ training.end_date }}</span>
+            </div>
+        {% empty %}
+            <p class="muted">No training records.</p>
+        {% endfor %}
+    </section>
+
+    <section class="profile-section">
+        <h2>Deployment Areas</h2>
+        {% for area in deployment_areas %}
+            <div class="profile-line">
+                <strong>{{ area.region }}</strong>
+                <span class="muted">{{ area.start_date }} to {{ area.end_date|default:"Current" }} - {{ area.get_status_display }}</span>
+            </div>
+        {% empty %}
+            <p class="muted">No deployment area history.</p>
+        {% endfor %}
+    </section>
+
+    <section class="profile-section">
+        <h2>Leave</h2>
+        {% for leave in leaves %}
+            <div class="profile-line">
+                <strong>{{ leave.get_leave_type_display }}</strong>
+                <span class="muted">{{ leave.start_date }} to {{ leave.end_date }} - {{ leave.get_approval_status_display }}</span>
+            </div>
+        {% empty %}
+            <p class="muted">No leave records.</p>
+        {% endfor %}
+    </section>
+
+    <section class="profile-section">
+        <h2>Salary</h2>
+        {% for salary in salaries %}
+            <div class="profile-line">
+                <strong>{{ salary.get_pay_period_display }}</strong>
+                <span class="muted">Total: {{ salary.total_salary }} - Basic: {{ salary.basic_salary }}</span>
+            </div>
+        {% empty %}
+            <p class="muted">No salary records.</p>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}

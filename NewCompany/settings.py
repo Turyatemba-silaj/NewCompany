@@ -12,37 +12,46 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    normalized = value.lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def env_list(name, default=""):
+    return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-fs863d0o2n6!2h*4cbhum3^&pi&wgkb%s!fi^vx0%in*an1b0k')
+# SECURITY WARNING: keep the secret key used in production secret.
+DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", True))
+SECRET_KEY = os.environ.get("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True').lower() in {'1', 'true', 'yes', 'on'}
+VERCEL_CONFIGURATION_ERRORS = []
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = "django-insecure-local-development-key"
+    else:
+        VERCEL_CONFIGURATION_ERRORS.append("Set SECRET_KEY to a unique production value.")
 
-ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost,.vercel.app').split(',')
-    if host.strip()
-]
-
-CSRF_TRUSTED_ORIGINS = [
-    origin.strip()
-    for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', 'https://*.vercel.app').split(',')
-    if origin.strip()
-]
-ALLOWED_HOSTS = [
-    "127.0.0.1",
-    "localhost",
-    ".vercel.app",
-]
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,.vercel.app"))
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "https://*.vercel.app")
+IS_VERCEL_RUNTIME = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
 
 # Application definition
 
@@ -59,6 +68,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'webroaster.middleware.VercelConfigurationMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -91,36 +101,32 @@ WSGI_APPLICATION = 'NewCompany.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-DATABASE_URL = os.environ.get('DATABASE_URL')
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 if DATABASE_URL:
-    parsed_database_url = urlparse(DATABASE_URL)
-    database_options = {}
-    database_query = parse_qs(parsed_database_url.query)
-    if database_query.get("sslmode"):
-        database_options["sslmode"] = database_query["sslmode"][0]
+    # Hosted production PostgreSQL
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=0,
+            conn_health_checks=True,
+            ssl_require=True,
+        )
+    }
+else:
+    # Local development PostgreSQL
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
-            "NAME": "NewCompany",
-            "USER": "postgres",
-            "PASSWORD": "postgres",
-            "HOST":   "127.0.0.1",
-            "PORT":  "5432",
-            "OPTIONS": database_options,
+            "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
+            "USER": os.environ.get("POSTGRES_USER", "postgres"),
+            "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
+            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
         }
     }
-else:
-    DATABASES = {
-        "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": "NewCompany",
-        "USER": "postgres",
-        "PASSWORD": "postgres",
-        "HOST":   "127.0.0.1",
-        "PORT":  "5432",
-    }
-}
+    if not DEBUG:
+        VERCEL_CONFIGURATION_ERRORS.append("Set DATABASE_URL to a hosted PostgreSQL database.")
 
 
 # Password validation
@@ -160,6 +166,22 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
 LOGIN_URL = '/staff/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
-X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = "DENY"
+
+SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool("DJANGO_SECURE_HSTS_PRELOAD", not DEBUG)
+
+SESSION_COOKIE_AGE = int(os.environ.get("DJANGO_SESSION_COOKIE_AGE", "1800"))
+SESSION_SAVE_EVERY_REQUEST = True

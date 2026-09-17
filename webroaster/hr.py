@@ -11,8 +11,8 @@ from django.utils import timezone
 from .access import require_model_access, require_view_access
 from .finance import sync_salary_table
 from .forms_hr import EmployeeDeploymentTransferForm, LeaveReviewForm
-from .models import DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Training
-from .views import render_page
+from .models import DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Salary, Training
+from .views import get_field_label, get_field_value, render_page
 
 def document_status(document, today=None):
     today = today or timezone.localdate()
@@ -64,6 +64,54 @@ def training_certificate(request, pk):
         "training_manager_name": str(training_manager) if training_manager else "Training Manager",
     }
     return render_page(request, "webroaster/training_certificate.html", context, "training")
+
+
+def employee_profile(request, pk):
+    require_model_access(request, "employees")
+    employee = get_object_or_404(Employee, pk=pk)
+    profile_fields = [
+        "employee_id",
+        "employee_number",
+        "first_name",
+        "last_name",
+        "date_of_birth",
+        "gender",
+        "phone_number",
+        "email",
+        "address",
+        "national_id",
+        "nssf_number",
+        "role",
+        "position",
+        "department",
+        "current_deployment_area",
+        "daily_rate",
+        "is_reliever",
+        "payout_method",
+        "bank_name",
+        "bank_account_name",
+        "bank_account_number",
+        "mobile_money_provider",
+        "mobile_money_number",
+        "qualification",
+        "hire_date",
+        "status",
+    ]
+    details = [
+        (get_field_label(Employee, field), get_field_value(employee, field))
+        for field in profile_fields
+    ]
+    context = {
+        "title": f"Employee Profile - {employee}",
+        "employee": employee,
+        "details": details,
+        "documents": Document.objects.filter(employee=employee).order_by("doc_type", "expiry_date", "-created_at")[:8],
+        "trainings": Training.objects.filter(employee=employee).order_by("-start_date", "-training_id")[:5],
+        "leaves": Leave.objects.filter(employee=employee).order_by("-start_date", "-leave_id")[:5],
+        "salaries": Salary.objects.filter(employee=employee).order_by("-pay_period", "-salary_id")[:5],
+        "deployment_areas": employee.deployment_areas.select_related("region", "transferred_by_hr_manager").order_by("-start_date", "-deployment_area_id")[:5],
+    }
+    return render_page(request, "webroaster/employee_profile.html", context, "employees")
 
 def employee_transfer(request, pk):
     require_model_access(request, "employees")

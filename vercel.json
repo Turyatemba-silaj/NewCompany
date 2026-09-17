@@ -1,14 +1,3 @@
 {
-  "builds": [
-    {
-      "src": "NewCompany/wsgi.py",
-      "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "NewCompany/wsgi.py"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }

@@ -40,6 +40,7 @@ urlpatterns = [
     path("leaves/<int:pk>/review/", staff_required(hr.leave_review), name="leave_review"),
     path("leaves/notifications/", staff_required(hr.leave_notifications), name="leave_notifications"),
     path("leaves/notifications/<int:notification_id>/<str:action>/", staff_required(hr.leave_notification_action), name="leave_notification_action"),
+    path("employees/<int:pk>/profile/", staff_required(hr.employee_profile), name="employee_profile"),
     path("employees/<int:pk>/transfer/", staff_required(hr.employee_transfer), name="employee_transfer"),
     path("incidents/report/", staff_required(operations.incident_report), name="incident_report"),
     path("incidents/notifications/", staff_required(operations.incident_notifications), name="incident_notifications"),

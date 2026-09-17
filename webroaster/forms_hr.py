@@ -73,6 +73,8 @@ class EmployeeForm(StyledModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if "passport_photo" in self.fields:
+            self.fields["passport_photo"].widget.attrs.setdefault("accept", "image/*")
         current_area = self.current_area
         if current_area:
             self.fields["deployment_area"].initial = current_area.region_id

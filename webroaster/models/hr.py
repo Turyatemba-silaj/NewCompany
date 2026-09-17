@@ -77,6 +77,7 @@ class Employee(models.Model):
     address = models.TextField()
     national_id = models.CharField(max_length=50, unique=True)
     nssf_number = models.CharField("NSSF Number", max_length=50, unique=True, blank=True, null=True)
+    passport_photo = models.FileField("Passport Photo", upload_to="employee_photos/", blank=True, null=True)
     ROLE_CHOICES = [
         ('guard', 'Guard'),
         ('supervisor', 'Supervisor'),

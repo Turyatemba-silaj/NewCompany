@@ -25,6 +25,9 @@
         {% if model_name == "employees" and object.can_transfer %}
             <a class="btn primary" href="{% url 'webroaster:employee_transfer' pk %}">Transfer</a>
         {% endif %}
+        {% if model_name == "employees" %}
+            <a class="btn primary" href="{% url 'webroaster:employee_profile' pk %}">Employee Profile</a>
+        {% endif %}
         {% if model_name == "leaves" %}
             <a class="btn primary" href="{% url 'webroaster:leave_review' pk %}">Review</a>
         {% endif %}

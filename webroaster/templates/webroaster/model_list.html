@@ -76,6 +76,7 @@
                                 {% else %}
                                     <a class="action-btn view" href="{% url 'webroaster:detail' model_name row.pk %}" title="View record">View</a>
                                 {% endif %}
+                                {% if model_name == "employees" %}<a class="action-btn workflow" href="{% url 'webroaster:employee_profile' row.pk %}" title="View employee profile">Profile</a>{% endif %}
                                 {% if model_name == "employees" and row.object.can_transfer %}<a class="action-btn workflow" href="{% url 'webroaster:employee_transfer' row.pk %}" title="Transfer employee">Transfer</a>{% endif %}
                                 {% if model_name == "leaves" %}<a class="action-btn workflow" href="{% url 'webroaster:leave_review' row.pk %}" title="Review leave">Review</a>{% endif %}
                                 {% if model_name == "incidents" %}<a class="action-btn workflow" href="{% url 'webroaster:incident_manage' row.pk %}" title="Manage incident">Manage</a>{% endif %}
