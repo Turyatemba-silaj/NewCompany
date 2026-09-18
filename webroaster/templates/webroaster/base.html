@@ -1,9 +1,13 @@
-﻿<!DOCTYPE html>
+{% load static %}
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Security Company{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.1.1/dist/css/tabler.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.bootstrap5.css">
     <style>
         :root {
             --bg: #eef3f7;
@@ -100,7 +104,7 @@
         .nav-link {
             display: flex;
             align-items: center;
-            gap: 0;
+            gap: 8px;
             padding: 9px 10px;
             border-radius: 8px;
             color: #dce5ee;
@@ -209,6 +213,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
+            gap: 6px;
             min-height: 38px;
             padding: 8px 12px;
             border-radius: 6px;
@@ -541,6 +546,17 @@
             color: #075985;
             font-weight: 800;
             font-size: 11px;
+        }
+        .chart-frame {
+            position: relative;
+            min-height: 260px;
+        }
+        .chart-frame.compact {
+            min-height: 210px;
+        }
+        .chart-frame canvas {
+            width: 100% !important;
+            height: 100% !important;
         }
         @media (max-width: 1050px) {
             .app-shell { grid-template-columns: 1fr; }
@@ -1768,17 +1784,17 @@
             <nav>
                 <div class="nav-section">
                     <a class="nav-link {% if not active_model %}active{% endif %}" href="{% url 'webroaster:home' %}">
-                        <span>Dashboard</span>
+                        <i class="bi bi-speedometer2" aria-hidden="true"></i><span>Dashboard</span>
                     </a>
                     {% if request.user.is_superuser %}
                         <details class="nav-group" {% if active_model == 'password-management' or active_model == 'audit-logs' %}open{% endif %}>
                             <summary><span class="nav-heading">Admin</span></summary>
                             <div class="nav-group-items">
                                 <a class="nav-link {% if active_model == 'password-management' %}active{% endif %}" href="{% url 'webroaster:password_management' %}">
-                                    <span>Access Control</span>
+                                    <i class="bi bi-shield-lock" aria-hidden="true"></i><span>Access Control</span>
                                 </a>
                                 <a class="nav-link {% if active_model == 'audit-logs' %}active{% endif %}" href="{% url 'webroaster:list' 'audit-logs' %}">
-                                    <span>Audit Logs</span>
+                                    <i class="bi bi-journal-text" aria-hidden="true"></i><span>Audit Logs</span>
                                 </a>
                             </div>
                         </details>
@@ -1790,12 +1806,12 @@
                         <div class="nav-group-items">
                             {% for item in department.items %}
                                 <a class="nav-link {% if item.active %}active{% endif %}" href="{% url 'webroaster:list' item.name %}">
-                                    <span>{{ item.title }}</span>
+                                    <i class="bi bi-grid-3x3-gap" aria-hidden="true"></i><span>{{ item.title }}</span>
                                 </a>
                             {% endfor %}
                             {% if department.name == "Finance" %}
                                 <a class="nav-link {% if request.resolver_match.url_name == 'aging_report' %}active{% endif %}" href="{% url 'webroaster:aging_report' %}">
-                                    <span>Aging Report</span>
+                                    <i class="bi bi-clock-history" aria-hidden="true"></i><span>Aging Report</span>
                                 </a>
                             {% endif %}
                         </div>
@@ -1805,7 +1821,7 @@
         </aside>
         <div class="main-area">
             <div class="top-strip">
-                <div class="operator-chip"><span class="avatar">{% if request.user.is_authenticated %}{{ request.user.username|slice:":2"|upper }}{% else %}AD{% endif %}</span><span>{% if request.user.is_authenticated %}{{ request.user.username }}{% else %}Staff{% endif %}</span></div><form method="post" action="{% url 'webroaster:logout' %}">{% csrf_token %}<button class="btn" type="submit">Logout</button></form>
+                <div class="operator-chip"><span class="avatar">{% if request.user.is_authenticated %}{{ request.user.username|slice:":2"|upper }}{% else %}AD{% endif %}</span><span>{% if request.user.is_authenticated %}{{ request.user.username }}{% else %}Staff{% endif %}</span></div><form method="post" action="{% url 'webroaster:logout' %}">{% csrf_token %}<button class="btn" type="submit"><i class="bi bi-box-arrow-right" aria-hidden="true"></i><span>Logout</span></button></form>
             </div>
             <main>
                 {% if messages %}
@@ -1830,6 +1846,15 @@
             </div>
         </dialog>
     {% endif %}
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.1.1/dist/js/tabler.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.js"></script>
+    <script src="https://cdn.datatables.net/2.1.8/js/dataTables.bootstrap5.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.5/dist/sweetalert2.all.min.js"></script>
+    <script src="{% static 'webroaster/js/erp-ui.js' %}"></script>
     <script>
         (function () {
             const inFrame = window.self !== window.top;

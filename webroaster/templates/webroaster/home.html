@@ -19,7 +19,7 @@
         <div class="command-actions">
             {% for action in quick_actions %}
                 <a class="command-action {{ action.tone }}" href="{% url action.url_name action.model %}">
-                    <span>{{ action.icon }}</span>
+                    <span><i class="bi {{ action.icon }}" aria-hidden="true"></i></span>
                     <strong>{{ action.label }}</strong>
                 </a>
             {% endfor %}
@@ -59,7 +59,9 @@
                     </div>
                 </div>
                 <div class="mix-layout">
-                    <div class="pie-chart command-donut" style="background: {{ department_pie_style }}"><span></span></div>
+                    <div class="chart-frame compact">
+                        <canvas id="departmentMixChart" aria-label="Department record mix"></canvas>
+                    </div>
                     <div class="mix-list">
                         {% for item in department_pie %}
                             <div class="mix-row">
@@ -80,21 +82,8 @@
                         <h2>Invoice, Collection, And Budget</h2>
                     </div>
                 </div>
-                <div class="cluster-chart command-bars">
-                    {% for group in clustered_bars %}
-                        <div class="cluster-group">
-                            <div class="cluster-bars">
-                                {% for bar in group.bars %}
-                                    <div class="cluster-bar-wrap">
-                                        <span>UGX {{ bar.value|thousands }}</span>
-                                        <div class="cluster-bar {{ bar.tone }}" style="height: {{ bar.height }}%"></div>
-                                        <small>{{ bar.label }}</small>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                            <strong>{{ group.label }}</strong>
-                        </div>
-                    {% endfor %}
+                <div class="chart-frame">
+                    <canvas id="financeBudgetChart" aria-label="Invoice, collection, and budget chart"></canvas>
                 </div>
             </article>
         </div>
@@ -128,7 +117,9 @@
                     </div>
                 </div>
                 <div class="severity-block">
-                    <div class="pie-chart mini-donut" style="background: {{ severity_pie_style }}"><span></span></div>
+                    <div class="chart-frame compact">
+                        <canvas id="severityChart" aria-label="Incident severity mix"></canvas>
+                    </div>
                     <div class="chart-legend compact-legend">
                         {% for item in severity_pie %}
                             <div class="legend-row">
@@ -189,11 +180,9 @@
                         <h3>{{ chart.title }}</h3>
                         <p class="muted">{{ chart.subtitle }}</p>
                     </div>
-                    <svg class="trend-svg" viewBox="0 0 320 120" role="img" aria-label="{{ chart.title }}">
-                        <line x1="14" y1="106" x2="306" y2="106"></line>
-                        <line x1="14" y1="14" x2="14" y2="106"></line>
-                        <polyline points="{{ chart.points }}"></polyline>
-                    </svg>
+                    <div class="chart-frame compact">
+                        <canvas data-trend-chart="{{ forloop.counter0 }}" aria-label="{{ chart.title }}"></canvas>
+                    </div>
                     <div class="trend-labels">
                         {% for row in chart.rows %}
                             <span>{{ row.label }}<strong>{{ row.value|thousands }}</strong></span>
@@ -203,6 +192,7 @@
             {% endfor %}
         </div>
     </article>
+    {{ dashboard_charts|json_script:"dashboard-chart-data" }}
 </section>
 {% endblock %}
 

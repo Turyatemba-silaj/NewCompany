@@ -641,9 +641,9 @@ def home(request):
     recent_incidents = Incident.objects.select_related("site").order_by("-date_time", "-incident_id")[:5]
     recent_payments = Payment.objects.select_related("invoice", "invoice__client").order_by("-payment_date", "-payment_id")[:5]
     quick_actions = [
-        {"label": "Incident", "icon": "!", "url_name": "webroaster:create", "model": "incidents", "tone": "red"},
-        {"label": "Deployment", "icon": "+", "url_name": "webroaster:create", "model": "deployments", "tone": "blue"},
-        {"label": "Payment", "icon": "$", "url_name": "webroaster:create", "model": "payments", "tone": "green"},
+        {"label": "Incident", "icon": "bi-exclamation-triangle", "url_name": "webroaster:create", "model": "incidents", "tone": "red"},
+        {"label": "Deployment", "icon": "bi-diagram-3", "url_name": "webroaster:create", "model": "deployments", "tone": "blue"},
+        {"label": "Payment", "icon": "bi-cash-coin", "url_name": "webroaster:create", "model": "payments", "tone": "green"},
     ]
 
     department_pie = [{"label": department["name"], "value": department["total"]} for department in dashboard_departments]
@@ -679,6 +679,30 @@ def home(request):
         {"title": "Invoice Trend", "subtitle": "Invoices raised over 7 days", **daily_count_rows(Invoice, "invoice_date")},
         {"title": "Payment Trend", "subtitle": "Payments received over 7 days", **daily_count_rows(Payment, "payment_date")},
     ]
+    trend_labels = [row["label"] for row in trend_charts[0]["rows"]] if trend_charts else []
+    dashboard_charts = {
+        "department": {
+            "labels": [item["label"] for item in department_pie],
+            "values": [item["value"] for item in department_pie],
+            "colors": [item["color"] for item in department_pie],
+        },
+        "severity": {
+            "labels": [item["label"] for item in severity_pie],
+            "values": [item["value"] for item in severity_pie],
+            "colors": [item["color"] for item in severity_pie],
+        },
+        "finance": {
+            "labels": [f"{group['label']} {bar['label']}" for group in clustered_bars for bar in group["bars"]],
+            "values": [float(bar["value"]) for group in clustered_bars for bar in group["bars"]],
+        },
+        "trends": {
+            "labels": trend_labels,
+            "datasets": [
+                {"label": chart["title"], "values": [row["value"] for row in chart["rows"]]}
+                for chart in trend_charts
+            ],
+        },
+    }
 
     context = {
         "dashboard_departments": dashboard_departments,
@@ -694,6 +718,7 @@ def home(request):
         "severity_pie_style": severity_pie_style,
         "clustered_bars": clustered_bars,
         "trend_charts": trend_charts,
+        "dashboard_charts": dashboard_charts,
     }
     return render_page(request, "webroaster/home.html", context)
 
