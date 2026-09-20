@@ -3,10 +3,9 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model, update_session_auth_hash
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError
-from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 
-from .access import role_group_permission_queryset
+from .access import role_group_permission_queryset, sync_role_groups
 from .forms_accounts import AdminUserCreationForm, ForgotPasswordResetForm, PasswordExpiredChangeForm, PasswordResetManagementForm
 from .models import Employee, UserPasswordProfile
 from .views import render_page
@@ -52,7 +51,7 @@ def _password_management_rows():
     User = get_user_model()
     by_email, by_employee_number = _employee_account_maps()
     rows = []
-    users = User.objects.prefetch_related("groups__permissions", "user_permissions").filter(Q(username__iexact="Trans") | Q(first_name__iexact="Namakula", last_name__iexact="Jenifah")).order_by("id")
+    users = User.objects.prefetch_related("groups__permissions", "user_permissions").order_by("username", "id")
     for user in users:
         employee = _matched_employee_for_user(user, by_email, by_employee_number)
         groups = ", ".join(group.name for group in user.groups.all()) or "No role group"
@@ -99,6 +98,7 @@ def password_management(request):
     if not request.user.is_superuser:
         raise PermissionDenied("Only system administrators can manage staff account access.")
 
+    sync_role_groups()
     create_user_form = AdminUserCreationForm()
 
     if request.method == "POST" and request.POST.get("action") == "deactivate_terminated":

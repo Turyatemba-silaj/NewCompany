@@ -3,12 +3,12 @@ from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Create or update the turyans superuser account."
+    help = "Create or update the NewCompany superuser account."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--username",
-            default="turyans",
+            default="newcompany",
             help="Username for the administrator account.",
         )
         parser.add_argument(
@@ -18,7 +18,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--email",
-            default="admin@turyans-security.local",
+            default="admin@newcompany.local",
             help="Email address for the administrator account.",
         )
 

@@ -139,6 +139,7 @@
     <div class="actions">
         <a class="btn" href="{% url 'webroaster:list' 'employees' %}">Back</a>
         <a class="btn" href="{% url 'webroaster:detail' 'employees' employee.pk %}">Details</a>
+        <a class="btn" href="{% url 'webroaster:employee_profile_pdf' employee.pk %}">Export PDF</a>
         <a class="btn primary" href="{% url 'webroaster:update' 'employees' employee.pk %}">Edit</a>
     </div>
 </div>

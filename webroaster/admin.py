@@ -62,10 +62,10 @@ class ContractDeliverableInline(TabularInline):
 
 @admin.register(Contract)
 class ContractAdmin(ModelAdmin):
-    list_display = ('contract_id', 'contract_number', 'client', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'rate_per_guard', 'contract_value', 'contract_status')
+    list_display = ('contract_id', 'contract_number', 'client', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'remaining_guards', 'rate_per_guard', 'contract_value', 'contract_status')
     list_filter = ('contract_status', 'contract_start_date', 'contract_end_date', 'client')
     search_fields = ('contract_number', 'client__client_name', 'client__contact_person', 'client__email')
-    readonly_fields = ('contract_number', 'number_of_guards', 'contract_value')
+    readonly_fields = ('contract_number', 'number_of_guards', 'site_required_guards', 'assigned_guards_count', 'remaining_guards', 'contract_value')
     inlines = [ContractDeliverableInline]
 
 
@@ -84,9 +84,10 @@ class RegionAdmin(ModelAdmin):
     search_fields = ('region_name', 'description')
 @admin.register(Site)
 class SiteAdmin(ModelAdmin):
-    list_display = ('site_id', 'region', 'site_name', 'site_address', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'assigned_guards')
+    list_display = ('site_id', 'site_code', 'region', 'site_name', 'site_address', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'assigned_guards')
     list_filter = ('region', 'client', 'contract', 'created_at')
-    search_fields = ('site_name', 'site_address', 'region__region_name', 'guards__first_name', 'guards__last_name', 'guards__employee_number')
+    search_fields = ('site_code', 'site_name', 'site_address', 'region__region_name', 'guards__first_name', 'guards__last_name', 'guards__employee_number')
+    readonly_fields = ('site_code',)
     filter_horizontal = ('guards',)
 
 
@@ -137,9 +138,10 @@ class Patrol_LogAdmin(ModelAdmin):
 
 @admin.register(Deployment)
 class DeploymentAdmin(ModelAdmin):
-    list_display = ('deployment_id', 'client', 'site', 'shift_summary', 'start_date', 'end_date', 'status')
+    list_display = ('deployment_id', 'client', 'site', 'shift_summary', 'day_guards_summary', 'night_guards_summary', 'start_date', 'end_date', 'status')
     list_filter = ('status', 'shift_coverage', 'client', 'start_date', 'site')
-    search_fields = ('client__client_name', 'site__site_name')
+    search_fields = ('client__client_name', 'site__site_name', 'day_guards__first_name', 'day_guards__last_name', 'night_guards__first_name', 'night_guards__last_name')
+    filter_horizontal = ('day_guards', 'night_guards')
 
 
 

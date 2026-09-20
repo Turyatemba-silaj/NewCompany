@@ -1,0 +1,10 @@
+.git
+.gitignore
+silaj/
+__pycache__/
+*.py[cod]
+*.sqlite3
+media/
+.env
+.env.*
+.vscode/

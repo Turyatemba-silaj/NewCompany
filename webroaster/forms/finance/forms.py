@@ -12,6 +12,7 @@ class AdvanceForm(BaseModelForm):
     class Meta:
         model = Advance
         fields = "__all__"
+        widgets = {"disbursement_date": forms.DateInput(attrs={"type": "date", "class": "form-control"})}
 
 
 class InvoiceForm(BaseModelForm):

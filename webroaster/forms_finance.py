@@ -45,8 +45,12 @@ class PayrollDeductionForm(StyledModelForm):
 class AdvanceForm(StyledModelForm):
     class Meta:
         model = Advance
-        fields = "__all__"
-        widgets = {"request_date": DATE_WIDGET, "approval_date": DATE_WIDGET}
+        exclude = ("installment_amount", "approval_status", "approved_by", "verification_status", "verified_by", "verified_at", "status")
+        widgets = {"disbursement_date": DATE_WIDGET}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["disbursement_date"].disabled = True
 
 
 class ExpenseForm(StyledModelForm):

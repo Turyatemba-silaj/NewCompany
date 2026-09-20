@@ -1,19 +1,19 @@
 ﻿{% extends "webroaster/public_base.html" %}
 {% load static %}
 {% load format_values %}
-{% block title %}Turyans Security Company{% endblock %}
+{% block title %}NewCompany{% endblock %}
 {% block content %}
 <section class="home-slider" data-slider data-slide-interval="45000">
     <article class="slide active">
-        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
+        <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
         <div class="slide-content">
-            <h1>Turyans Security Company</h1>
+            <h1>NewCompany</h1>
             <div class="actions"><a class="btn blue" href="{% url 'webroaster:what_we_do' %}">Services</a></div>
         </div>
     </article>
     {% for event in events|slice:":1" %}
         <article class="slide">
-            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Company event background">
+            <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Company event background">
             <div class="slide-content">
                 <h1>{{ event.title }}</h1>
             </div>
@@ -21,7 +21,7 @@
     {% endfor %}
     {% for job in open_jobs|slice:":1" %}
         <article class="slide">
-            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Careers background">
+            <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Careers background">
             <div class="slide-content">
                 <h1>{{ job.title }}</h1>
             </div>

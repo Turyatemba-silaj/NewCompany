@@ -5,8 +5,8 @@ from django.shortcuts import redirect
 
 ROLE_GROUPS = {
     "Supervisor": {
-        "models": {"attendance"},
-        "views": {"leave_notifications", "leave_notification_action", "supervisor_checklist"},
+        "models": {"attendance", "deployments"},
+        "views": {"leave_notifications", "leave_notification_action", "advance_notifications", "advance_notification_action", "supervisor_checklist"},
     },
     "Human Resources": {
         "models": {
@@ -26,7 +26,7 @@ ROLE_GROUPS = {
             "advances",
             "payroll-deductions",
         },
-        "views": {"leave_notifications", "leave_notification_action", "payroll"},
+        "views": {"leave_notifications", "leave_notification_action", "advance_notifications", "advance_notification_action", "payroll"},
     },
     "Operations Manager": {
         "models": {
@@ -59,6 +59,10 @@ ROLE_GROUPS = {
     },
     "Finance Officer": {
         "models": {
+            "payroll",
+            "salaries",
+            "advances",
+            "payroll-deductions",
             "procurement",
             "suppliers",
             "procurement-requisitions",
@@ -78,6 +82,8 @@ ROLE_GROUPS = {
         },
         "views": {
             "aging_report",
+            "advance_notifications",
+            "advance_notification_action",
             "budget_notifications",
             "budget_report",
             "expense_notifications",
@@ -162,6 +168,15 @@ def sync_role_group_permissions(group):
         group.permissions.set(permissions)
     return permissions
 
+
+def sync_role_groups():
+    groups = []
+    for group_name in ROLE_GROUPS:
+        group, _created = Group.objects.get_or_create(name=group_name)
+        sync_role_group_permissions(group)
+        groups.append(group)
+    return groups
+
 DEFAULT_USERS = {
     "supervisor": "Supervisor",
     "hr": "Human Resources",
@@ -206,6 +221,20 @@ def user_allowed_views(user):
     allowed = set()
     for group_name in restricted_groups:
         allowed.update(ROLE_GROUPS[group_name].get("views", set()))
+    return allowed
+
+
+def advance_notification_groups(user):
+    if getattr(user, "is_superuser", False):
+        return None
+    groups = user_group_names(user)
+    allowed = set()
+    if "Supervisor" in groups or "Operations Manager" in groups:
+        allowed.add("Supervisor")
+    if "Human Resources" in groups:
+        allowed.update({"HR Officer", "HR Approver"})
+    if "Finance Officer" in groups or "Head of Finance" in groups:
+        allowed.add("Finance")
     return allowed
 
 
@@ -260,8 +289,9 @@ def sync_default_role_accounts(password=DEFAULT_PASSWORD):
     User = get_user_model()
     created = []
     updated = []
+    groups_by_name = {group.name: group for group in sync_role_groups()}
     for username, group_name in DEFAULT_USERS.items():
-        group, _group_created = Group.objects.get_or_create(name=group_name)
+        group = groups_by_name[group_name]
         user, was_created = User.objects.get_or_create(username=username)
         user.is_staff = True
         if group_name == "Head of Finance":

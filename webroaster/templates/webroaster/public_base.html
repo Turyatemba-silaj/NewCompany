@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Turyans Security Company{% endblock %}</title>
+    <title>{% block title %}NewCompany{% endblock %}</title>
     <style>
         :root { --ink:#17202a; --muted:#667085; --line:#d8dee8; --panel:#fff; --blue:#163f7a; --teal:#0f766e; --gold:#b7791f; --soft:#f3f7fb; --danger:#9f1d2f; }
         * { box-sizing: border-box; }
@@ -87,7 +87,7 @@
 <body>
 <header class="site-header">
     <div class="nav-wrap">
-        <a class="brand" href="{% url 'webroaster:public_home' %}"><span class="brand-mark">TS</span><span>Turyans Security<small>Company (U) Limited</small></span></a>
+        <a class="brand" href="{% url 'webroaster:public_home' %}"><span class="brand-mark">NC</span><span>NewCompany<small>ERP</small></span></a>
         <button class="menu-toggle" type="button" data-menu-toggle>Menu</button>
         <nav class="site-nav" data-site-nav>
             <a class="{% if active_public == 'home' %}active{% endif %}" href="{% url 'webroaster:public_home' %}">Home</a>
@@ -105,7 +105,7 @@
 <main>{% block content %}{% endblock %}</main>
 <footer class="site-footer">
     <div class="footer-inner">
-        <div><h3>Turyans Security Company</h3><p class="muted">Professional security operations, accountable deployments, and client-focused protection.</p></div>
+        <div><h3>NewCompany</h3><p class="muted">Professional security operations, accountable deployments, and client-focused protection.</p></div>
         <div><h3>Company</h3><a href="{% url 'webroaster:who_we_are' %}">Who We Are</a><a href="{% url 'webroaster:what_we_do' %}">What We Do</a><a href="{% url 'webroaster:impact' %}">Impact</a></div>
         <div><h3>Opportunities</h3><a href="{% url 'webroaster:careers' %}">Careers</a><a href="{% url 'webroaster:resources' %}">Resources</a></div>
         <div><h3>Office</h3><p>Online applications are captured immediately. Physical applications can be recorded by HR through Job Applications.</p></div>

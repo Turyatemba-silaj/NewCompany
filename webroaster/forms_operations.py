@@ -185,9 +185,6 @@ class SiteForm(StyledModelForm):
                 self.add_error("night_shift_guards", "Total site night shift guards cannot exceed the contract night shift guards.")
 
         if guards is not None:
-            required_guards = day_shift_guards + night_shift_guards
-            if required_guards and guards.count() < required_guards:
-                self.add_error("guards", "Assign at least the total day and night guards required for this site.")
             site_for_area = Site(
                 region=cleaned_data.get("region"),
                 site_name=cleaned_data.get("site_name") or "",
@@ -391,13 +388,54 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
 
     class Meta:
         model = Deployment
-        fields = ["client", "site", "shift_type", "start_date", "end_date", "status"]
-        widgets = {"start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
+        fields = ["client", "site", "shift_type", "day_guards", "night_guards", "start_date", "end_date", "status"]
+        widgets = {"day_guards": forms.CheckboxSelectMultiple, "night_guards": forms.CheckboxSelectMultiple, "start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:
             self.fields["shift_type"].initial = self.instance.shift_coverage
+        guard_queryset = self.guard_queryset_for_selected_site()
+        self.fields["day_guards"].queryset = guard_queryset
+        self.fields["night_guards"].queryset = guard_queryset
+        self.fields["day_guards"].required = False
+        self.fields["night_guards"].required = False
+        self.fields["day_guards"].label = "Day Shift Guards"
+        self.fields["night_guards"].label = "Night Shift Guards"
+
+    def selected_site_id(self):
+        if self.is_bound:
+            return self.data.get(self.add_prefix("site")) or None
+        if self.instance and self.instance.pk:
+            return self.instance.site_id
+        value = self.initial.get("site")
+        return getattr(value, "pk", value) or None
+
+    def guard_queryset_for_selected_site(self):
+        site_id = self.selected_site_id()
+        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active")
+        if not site_id:
+            return base_queryset.none()
+        site = Site.objects.filter(pk=site_id).select_related("region").first()
+        if not site:
+            return base_queryset.none()
+        today = timezone.localdate()
+        region_ids = list(site.deployment_area_regions().values_list("pk", flat=True))
+        assigned_ids = []
+        if self.instance and self.instance.pk:
+            assigned_ids = [
+                *self.instance.day_guards.values_list("pk", flat=True),
+                *self.instance.night_guards.values_list("pk", flat=True),
+            ]
+        return (
+            base_queryset.filter(
+                Q(deployment_areas__region_id__in=region_ids, deployment_areas__status="active", deployment_areas__start_date__lte=today)
+                & (Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=today))
+                | Q(pk__in=assigned_ids)
+            )
+            .distinct()
+            .order_by("employee_number", "first_name", "last_name")
+        )
 
     def clean(self):
         cleaned_data = super().clean()
@@ -406,6 +444,8 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
         start_date = cleaned_data.get("start_date")
         end_date = cleaned_data.get("end_date") or start_date
         shift_type = cleaned_data.get("shift_type")
+        day_guards = cleaned_data.get("day_guards")
+        night_guards = cleaned_data.get("night_guards")
 
         if site and not client:
             cleaned_data["client"] = site.client
@@ -423,7 +463,23 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
 
         if shift_type:
             cleaned_data["shift_coverage"] = shift_type
-            cleaned_data["shift"] = get_default_shift("night" if shift_type == "night" else "day")
+            default_shift = get_default_shift("night" if shift_type == "night" else "day")
+            cleaned_data["shift"] = default_shift
+            self.instance.shift_coverage = shift_type
+            self.instance.shift = default_shift
+        if site:
+            if shift_type in ("day", "day_night"):
+                day_count = day_guards.count() if day_guards is not None else 0
+                if day_count != site.day_shift_guards:
+                    self.add_error("day_guards", f"Assign exactly {site.day_shift_guards} day shift guard(s) for this site.")
+            if shift_type in ("night", "day_night"):
+                night_count = night_guards.count() if night_guards is not None else 0
+                if night_count != site.night_shift_guards:
+                    self.add_error("night_guards", f"Assign exactly {site.night_shift_guards} night shift guard(s) for this site.")
+            if shift_type == "day" and night_guards:
+                self.add_error("night_guards", "Night guards can only be assigned to a Night or Day and Night deployment.")
+            if shift_type == "night" and day_guards:
+                self.add_error("day_guards", "Day guards can only be assigned to a Day or Day and Night deployment.")
         return cleaned_data
 
     def save(self, commit=True):
@@ -435,6 +491,10 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
         if commit:
             instance.save()
             self.save_m2m()
+            if shift_type == "day":
+                instance.night_guards.clear()
+            elif shift_type == "night":
+                instance.day_guards.clear()
         return instance
 
 

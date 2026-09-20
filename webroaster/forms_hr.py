@@ -1,7 +1,7 @@
 ﻿from django import forms
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, When
 from django.utils import timezone
 
 from .forms_base import DATE_WIDGET, DateRangeValidationMixin, StyledModelForm
@@ -21,9 +21,26 @@ from .models import (
 )
 
 
+EMPLOYEE_DEPLOYMENT_AREA_NAMES = ("Kampala", "Mbarara", "Jinja", "Lira", "Mukono", "Masaka", "Hoima")
+
+
+def employee_deployment_area_queryset():
+    for area_name in EMPLOYEE_DEPLOYMENT_AREA_NAMES:
+        Region.objects.get_or_create(
+            region_name=area_name,
+            defaults={"description": f"NewCompany deployment area for {area_name}."},
+        )
+    ordering = Case(
+        *[When(region_name=area_name, then=index) for index, area_name in enumerate(EMPLOYEE_DEPLOYMENT_AREA_NAMES)],
+        default=len(EMPLOYEE_DEPLOYMENT_AREA_NAMES),
+        output_field=IntegerField(),
+    )
+    return Region.objects.filter(region_name__in=EMPLOYEE_DEPLOYMENT_AREA_NAMES).order_by(ordering)
+
+
 class EmployeeDeploymentTransferForm(forms.Form):
     from_deployment_area = forms.ModelChoiceField(queryset=DeploymentArea.objects.none(), label="From Deployment Area")
-    to_deployment_area = forms.ModelChoiceField(queryset=Region.objects.all().order_by("region_name"), label="To Deployment Area")
+    to_deployment_area = forms.ModelChoiceField(queryset=Region.objects.none(), label="To Deployment Area")
     start_date = forms.DateField(label="Transfer Date", widget=DATE_WIDGET)
     transferred_by_hr_manager = forms.ModelChoiceField(queryset=Employee.objects.filter(role__in=("manager", "hr_officer")), required=False)
     transfer_notes = forms.CharField(label="Reason", required=False, widget=forms.Textarea(attrs={"rows": 2, "class": "form-control"}))
@@ -31,6 +48,7 @@ class EmployeeDeploymentTransferForm(forms.Form):
     def __init__(self, *args, employee=None, **kwargs):
         self.employee = employee
         super().__init__(*args, **kwargs)
+        self.fields["to_deployment_area"].queryset = employee_deployment_area_queryset()
         if employee:
             today = timezone.localdate()
             self.fields["from_deployment_area"].queryset = employee.deployment_areas.filter(status="active", start_date__lte=today).filter(Q(end_date__isnull=True) | Q(end_date__gte=today))
@@ -64,7 +82,7 @@ class PositionForm(StyledModelForm):
 
 
 class EmployeeForm(StyledModelForm):
-    deployment_area = forms.ModelChoiceField(queryset=Region.objects.all().order_by("region_name"), required=False, label="Deployment Area")
+    deployment_area = forms.ModelChoiceField(queryset=Region.objects.none(), required=False, label="Deployment Area")
 
     class Meta:
         model = Employee
@@ -73,6 +91,7 @@ class EmployeeForm(StyledModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["deployment_area"].queryset = employee_deployment_area_queryset()
         if "passport_photo" in self.fields:
             self.fields["passport_photo"].widget.attrs.setdefault("accept", "image/*")
         current_area = self.current_area

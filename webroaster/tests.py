@@ -12,11 +12,13 @@ from django.test import RequestFactory, SimpleTestCase, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms_finance import ExpenseForm, InvoiceForm
+from .finance import salary_payslip_context
+from .forms_finance import AdvanceForm, ExpenseForm, InvoiceForm
+from .views import get_config
 from .forms_hr import DisciplinaryActionForm, PerformanceEvaluationForm
-from .forms_operations import SiteForm
+from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
-from .models import Advance, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementRequisition, PurchaseOrder, Region, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
+from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementRequisition, PurchaseOrder, Region, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
 from .operations import build_monthly_roster_matrix, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
 
@@ -27,6 +29,25 @@ def login_test_staff(client, username="staff"):
     user.save()
     client.force_login(user)
     return user
+
+class AdvanceFormTests(SimpleTestCase):
+    def test_advance_form_uses_native_date_widget_for_disbursement_date(self):
+        form = AdvanceForm()
+
+        self.assertIn("disbursement_date", form.fields)
+        self.assertEqual(form.fields["disbursement_date"].widget.input_type, "date")
+        self.assertIn('type="date"', form["disbursement_date"].as_widget())
+
+
+class EmployeeConfigTests(SimpleTestCase):
+    def test_employee_config_uses_current_deployment_area_property(self):
+        config = get_config("employees")
+
+        self.assertNotIn("deployment_area", config.get("entry_fields", []))
+        self.assertNotIn("deployment_area", config.get("detail_fields", []))
+        self.assertIn("current_deployment_area", config.get("fields", []))
+        self.assertIn("current_deployment_area", config.get("detail_fields", []))
+
 
 class GuardRotationTests(SimpleTestCase):
     def test_schedules_required_guards_and_leaves_relief_guard_off(self):
@@ -850,6 +871,121 @@ class SiteDeploymentAreaTests(TestCase):
         self.assertIn("region", form.fields)
         self.assertEqual(form.fields["region"].label, "Deployment Area")
         self.assertIn("guards", form.fields)
+
+    def test_site_form_allows_creation_without_available_guards(self):
+        region = Region.objects.create(region_name="No Guards Region")
+        contract = self.make_contract()
+
+        form = SiteForm(data={
+            "region": region.pk,
+            "client": contract.client.pk,
+            "contract": contract.pk,
+            "site_name": "Unstaffed Site",
+            "site_address": "Kampala",
+            "day_shift_guards": 2,
+            "night_shift_guards": 0,
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_site_code_is_generated_from_contract_number(self):
+        region = Region.objects.create(region_name="Code Region")
+        contract = self.make_contract()
+
+        site_one = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Code Site One",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        site_two = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Code Site Two",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+
+        self.assertEqual(site_one.site_code, f"{contract.contract_number}-S001")
+        self.assertEqual(site_two.site_code, f"{contract.contract_number}-S002")
+
+    def test_deployment_form_requires_day_guards_to_match_site_day_shift(self):
+        region = Region.objects.create(region_name="Deployment Without Guard Region")
+        contract = self.make_contract()
+        site = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Deployment Without Guard Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+
+        form = DeploymentForm(data={
+            "client": contract.client.pk,
+            "site": site.pk,
+            "shift_type": "day",
+            "start_date": date(2026, 1, 1),
+            "end_date": date(2026, 12, 31),
+            "status": "active",
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Assign exactly 1 day shift guard", str(form.errors["day_guards"]))
+
+    def test_deployment_form_assigns_day_and_night_guards_by_shift_count(self):
+        region = Region.objects.create(region_name="Deployment Shift Guard Region")
+        client = Client.objects.create(
+            client_name="Shift Assignment Client",
+            contact_person="Ops",
+            phone_number="0700000000",
+            email="shift-assignment@example.com",
+            address="Kampala",
+        )
+        contract = Contract.objects.create(
+            client=client,
+            contract_start_date=date(2026, 1, 1),
+            contract_end_date=date(2026, 12, 31),
+            day_shift_guards=2,
+            night_shift_guards=1,
+            rate_per_guard=Decimal("1000.00"),
+        )
+        site = Site.objects.create(
+            client=client,
+            contract=contract,
+            region=region,
+            site_name="Deployment Shift Guard Site",
+            site_address="Kampala",
+            day_shift_guards=2,
+            night_shift_guards=1,
+        )
+        day_guard_one = self.make_employee("DayDeploymentOne")
+        day_guard_two = self.make_employee("DayDeploymentTwo")
+        night_guard = self.make_employee("NightDeployment")
+        for guard in (day_guard_one, day_guard_two, night_guard):
+            DeploymentArea.objects.create(employee=guard, region=region, start_date=timezone.localdate(), status="active")
+
+        form = DeploymentForm(data={
+            "client": client.pk,
+            "site": site.pk,
+            "shift_type": "day_night",
+            "day_guards": [day_guard_one.pk, day_guard_two.pk],
+            "night_guards": [night_guard.pk],
+            "start_date": date(2026, 1, 1),
+            "end_date": date(2026, 12, 31),
+            "status": "active",
+        })
+
+        self.assertTrue(form.is_valid(), form.errors)
+        deployment = form.save()
+        self.assertEqual(list(deployment.day_guards.order_by("pk")), [day_guard_one, day_guard_two])
+        self.assertEqual(list(deployment.night_guards.all()), [night_guard])
 
 
     def test_site_form_guard_choices_are_limited_to_selected_deployment_area(self):
@@ -1682,7 +1818,7 @@ class PublicWebsiteTests(TestCase):
         dashboard_response = self.client.get("/dashboard/")
 
         self.assertEqual(home_response.status_code, 200)
-        self.assertContains(home_response, "Turyans Security Company")
+        self.assertContains(home_response, "NewCompany")
         self.assertNotContains(home_response, "Recruitment Drive")
         self.assertNotContains(home_response, "New guard roles open")
         self.assertContains(home_response, "Community Safety Day")
@@ -1783,6 +1919,14 @@ class RoleAccessControlTests(TestCase):
         self.assertContains(attendance_response, "Attendance", status_code=200)
         self.assertNotContains(attendance_response, "Employees")
 
+    def test_supervisor_can_open_schedule_guards_form(self):
+        self.make_role_user("supervisor-scheduler", "Supervisor")
+
+        response = self.client.get("/deployments/add/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Day Shift Guards")
+
     def test_hr_can_open_employees_and_payroll_but_not_finance_payments(self):
         self.make_role_user("hr-role", "Human Resources")
 
@@ -1843,6 +1987,57 @@ class AccessControlAndAuditTests(TestCase):
 
         with self.assertRaisesMessage(Exception, "Audit log records are immutable"):
             audit_log.save()
+
+class AdvanceWorkflowTests(TestCase):
+    def make_employee(self, first_name, role, department):
+        return Employee.objects.create(
+            first_name=first_name,
+            last_name="Advance",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number=f"0788{Employee.objects.count():06d}",
+            email=f"{first_name.lower()}@advance.example.com",
+            address="Kampala",
+            national_id=f"NIN-ADV-{first_name}",
+            hire_date=date(2024, 1, 1),
+            role=role,
+            department=department,
+            status="active",
+        )
+
+    def test_advance_submission_notifies_hr(self):
+        employee = self.make_employee("AdvanceRequester", "guard", "operations")
+        hr_officer = self.make_employee("AdvanceHR", "hr_officer", "hr")
+        advance = Advance.objects.create(employee=employee, amount_requested=Decimal("120000.00"))
+
+        advance.notify_submission()
+
+        notification = AdvanceNotification.objects.get(advance=advance, recipient=hr_officer)
+        self.assertEqual(notification.notification_type, "approval_requested")
+        self.assertTrue(notification.can_approve)
+
+    def test_hr_approval_updates_status_notifies_finance_and_refreshes_payroll(self):
+        employee = self.make_employee("AdvanceApproved", "administrator", "admin")
+        hr_officer = self.make_employee("AdvanceApprover", "hr_officer", "hr")
+        finance_officer = self.make_employee("AdvanceFinance", "finance_officer", "finance")
+        salary = Salary.objects.create(employee=employee, basic_salary=Decimal("900000.00"))
+        advance = Advance.objects.create(employee=employee, amount_requested=Decimal("120000.00"))
+        advance.notify_submission()
+        notification = AdvanceNotification.objects.get(advance=advance, recipient=hr_officer)
+        login_test_staff(self.client, "advance-approval")
+
+        response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "approve"]))
+
+        self.assertEqual(response.status_code, 302)
+        advance.refresh_from_db()
+        salary.refresh_from_db()
+        self.assertEqual(advance.approval_status, "approved")
+        self.assertEqual(advance.status, "disbursed")
+        self.assertEqual(advance.approved_by, hr_officer)
+        self.assertTrue(AdvanceNotification.objects.filter(advance=advance, recipient=finance_officer, notification_type="finance_update").exists())
+        self.assertTrue(AdvanceNotification.objects.filter(advance=advance, recipient=employee, notification_type="advance_approved").exists())
+        self.assertGreater(salary.advance_recovery, Decimal("0.00"))
+
 
 class PayrollProcessingTests(TestCase):
     def make_employee(self, first_name, role):
@@ -1911,6 +2106,7 @@ class PayrollProcessingTests(TestCase):
         )
         shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
         guard = self.make_employee("JulyPayrollGuard", "guard")
+        DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 7, 1), status="active")
         deployment = Deployment.objects.create(
             site=site,
             shift=shift,
@@ -1938,6 +2134,106 @@ class PayrollProcessingTests(TestCase):
         self.assertEqual(salary.shifts_worked, 1)
         self.assertEqual(salary.basic_salary, guard.daily_rate)
         self.assertEqual(salary.net_pay, salary.gross_pay - salary.total_deductions)
+
+    def test_attendance_save_processes_payroll_and_payslip(self):
+        region = Region.objects.create(region_name="Attendance Payroll Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Attendance Payroll Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        guard = self.make_employee("AttendancePayrollGuard", "guard")
+        DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 9, 1), status="active")
+        Advance.objects.create(
+            employee=guard,
+            amount_requested=Decimal("100000.00"),
+            approval_status="approved",
+            disbursement_date=date(2026, 9, 1),
+            status="disbursed",
+        )
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 9, 1),
+            status="active",
+        )
+
+        Attendance.objects.create(
+            deployment=deployment,
+            site=site,
+            shift=shift,
+            scheduled_guard=guard,
+            attended_guard=guard,
+            present=True,
+            employee=guard,
+            date=date(2026, 9, 18),
+            time_in=shift.start_time,
+            time_out=shift.end_time,
+        )
+
+        salary = Salary.objects.get(employee=guard)
+        expected_recovery = (salary.gross_pay * Decimal("0.33")).quantize(Decimal("0.01"))
+        self.assertEqual(salary.shifts_worked, 1)
+        self.assertEqual(salary.basic_salary, guard.daily_rate)
+        self.assertEqual(salary.advance_recovery, expected_recovery)
+        self.assertEqual(salary.net_pay, salary.gross_pay - salary.total_deductions)
+
+        login_test_staff(self.client, "payroll-payslip")
+        response = self.client.get(f"/salaries/{salary.pk}/payslip/")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Payslip")
+
+    def test_roster_attendance_uses_deployment_guards_for_payroll(self):
+        region = Region.objects.create(region_name="Roster Payroll Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Roster Payroll Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        guard = self.make_employee("RosterPayrollGuard", "guard")
+        DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 9, 1), status="active")
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 9, 1),
+            status="active",
+        )
+        deployment.day_guards.add(guard)
+
+        login_test_staff(self.client, "roster-payroll")
+        response = self.client.get(f"/attendance/?site={site.pk}&mark_date=2026-09-18")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, guard.employee_number_name)
+
+        row_key = f"{deployment.pk}_day_{guard.pk}"
+        response = self.client.post("/attendance/", data={
+            "site": site.pk,
+            "mark_date": "2026-09-18",
+            "row_key": row_key,
+            f"deployment_id_{row_key}": deployment.pk,
+            f"scheduled_guard_id_{row_key}": guard.pk,
+            f"shift_type_{row_key}": "day",
+            f"present_{row_key}": "on",
+            f"attended_guard_{row_key}": guard.pk,
+            f"reason_{row_key}": "",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        attendance = Attendance.objects.filter(scheduled_guard=guard, date=date(2026, 9, 18)).first()
+        self.assertIsNotNone(attendance)
+        self.assertTrue(attendance.present)
+        self.assertTrue(attendance.is_payable_shift)
+        salary = Salary.objects.get(employee=guard)
+        self.assertEqual(salary.shifts_worked, 1)
+        self.assertEqual(salary.basic_salary, guard.daily_rate)
 
     def test_administrator_salary_is_fixed_not_attendance_based(self):
         administrator = self.make_employee("AdminFixed", "administrator")
@@ -1967,6 +2263,26 @@ class PayrollProcessingTests(TestCase):
         self.assertEqual(salary.loan_deduction, Decimal("50000.00"))
         self.assertEqual(salary.medical_deduction, Decimal("25000.00"))
         self.assertEqual(salary.advance_recovery, Decimal("100000.00"))
+
+    def test_approved_pending_salary_advance_is_recovered_and_shown_on_payslip(self):
+        employee = self.make_employee("AdvancePayslip", "administrator")
+        salary = employee.salary
+        advance = Advance.objects.create(
+            employee=employee,
+            amount_requested=Decimal("150000.00"),
+            approval_status="approved",
+            disbursement_date=timezone.localdate(),
+            status="pending",
+        )
+
+        salary.recover_advances()
+
+        self.assertEqual(salary.advance_recovery, Decimal("150000.00"))
+        self.assertIn(advance, employee.advances.filter(approval_status="approved"))
+
+        context = salary_payslip_context(salary)
+        self.assertIn("Advance Recovery", [label for label, _ in context["deductions"]])
+        self.assertEqual(context["advance_balance"], salary.ledger_advance_balance)
 
     def test_paye_uses_july_2026_resident_rates(self):
         employee = self.make_employee("PayeStaff", "administrator")

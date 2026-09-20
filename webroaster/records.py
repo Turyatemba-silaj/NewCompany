@@ -35,7 +35,7 @@ from .forms_hr import DocumentForm
 from .forms_operations import ContractDeliverableFormSet
 from .hr import document_register_context, notify_disciplinary_employee
 from .models import Asset, Attendance, Deployment, Document, Employee, Invoice, ProcurementRequisition, Site, SupplierProformaInvoice
-from .operations import load_site_scheduled_guards, rotating_available_guards, site_roster_staff
+from .operations import deployment_shift_guards, load_site_scheduled_guards, rotating_available_guards, site_roster_staff
 from .views import (
     asset_stock_groups,
     build_create_formset,
@@ -126,6 +126,7 @@ def model_list(request, model_name):
             row_keys = request.POST.getlist("row_key")
             saved_count = 0
             site_guard_ids = {employee.pk for employee in site_roster_staff(selected_site, mark_day)}
+            guard_choices = Employee.objects.filter(pk__in=site_guard_ids).order_by("first_name", "last_name")
             for row_key in row_keys:
                 deployment_id = request.POST.get(f"deployment_id_{row_key}")
                 scheduled_guard_id = request.POST.get(f"scheduled_guard_id_{row_key}")
@@ -166,6 +167,7 @@ def model_list(request, model_name):
                             "employee": employee,
                             "time_in": shift.start_time,
                             "time_out": shift.end_time,
+                            "remarks": "",
                         },
                     )
                 except ValidationError as exc:
@@ -231,7 +233,11 @@ def model_list(request, model_name):
                 for shift_type in shift_types:
                     shift = get_default_shift(shift_type)
                     required_guards = required_by_shift[shift_type]
-                    scheduled_guards = deployment_guards[guard_offset : guard_offset + required_guards]
+                    assigned_shift_guards = deployment_shift_guards(deployment, shift_type)
+                    if assigned_shift_guards:
+                        scheduled_guards = assigned_shift_guards[:required_guards]
+                    else:
+                        scheduled_guards = deployment_guards[guard_offset : guard_offset + required_guards]
                     guard_offset += required_guards
                     for scheduled_guard in scheduled_guards:
                         scheduled_guard_ids.add(scheduled_guard.pk)
@@ -538,6 +544,7 @@ def model_create(request, model_name):
             "model_name": model_name,
             "title": "Add Deployment",
             "form": form,
+            "deployment_form_layout": True,
             "submit_label": "Save Deployment",
         }
         return render_page(request, "webroaster/model_form.html", context, model_name)
@@ -615,6 +622,9 @@ def model_create(request, model_name):
     )
     if request.method == "POST" and entry_formset.is_valid():
         objects = entry_formset.save()
+        if model_name == "advances":
+            for advance in objects:
+                advance.notify_submission()
         if model_name == "disciplinary-actions":
             for obj in objects:
                 notify_disciplinary_employee(obj)
@@ -678,6 +688,7 @@ def model_update(request, model_name, pk):
             "submit_label": "Submit",
         }
         return render_page(request, "webroaster/leave_form.html", context, model_name)
+    previous_approval_status = getattr(obj, "approval_status", None)
     form = config["form"](request.POST or None, request.FILES or None, instance=obj, required_only=config.get("required_only", True))
     deliverable_formset = None
     invoice_item_formset = None
@@ -717,6 +728,16 @@ def model_update(request, model_name, pk):
             proforma_items_are_valid = False
         if form_is_valid and formset_is_valid and invoice_items_are_valid and proforma_items_are_valid:
             obj = form.save()
+            if model_name == "advances":
+                if previous_approval_status == "pending" and obj.approval_status == "approved":
+                    obj.status = "disbursed"
+                    obj.disbursement_date = obj.disbursement_date or timezone.localdate()
+                    obj.save(update_fields=["status", "disbursement_date", "updated_at"])
+                    obj.refresh_payroll()
+                elif previous_approval_status == "pending" and obj.approval_status == "rejected":
+                    obj.status = "rejected"
+                    obj.save(update_fields=["status", "updated_at"])
+                    obj.refresh_payroll()
             if model_name == "disciplinary-actions":
                 notify_disciplinary_employee(obj)
             if deliverable_formset is not None:
@@ -749,6 +770,7 @@ def model_update(request, model_name, pk):
         "performance_evaluation_layout": model_name == "performance-evaluations",
         "invoice_form_layout": model_name == "invoices",
         "incident_form_layout": model_name == "incidents",
+        "deployment_form_layout": model_name == "deployments",
     }
     if model_name == "incidents":
         context["incident_guard_choices_by_site"] = incident_guard_choices_by_site()

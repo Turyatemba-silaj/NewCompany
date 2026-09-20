@@ -1,6 +1,7 @@
 ﻿from datetime import time
 
 from django import forms
+from django.core.exceptions import FieldDoesNotExist
 
 from .models import Shift
 
@@ -33,8 +34,22 @@ class StyledModelForm(forms.ModelForm):
             for field_name in list(self.fields):
                 if not self.fields[field_name].required:
                     self.fields.pop(field_name)
-        for field in self.fields.values():
+        for name, field in self.fields.items():
             widget = field.widget
+            try:
+                model_field = self._meta.model._meta.get_field(name)
+            except FieldDoesNotExist:
+                model_field = None
+            if model_field and model_field.get_internal_type() == "DateField":
+                widget.input_type = "date"
+                widget.attrs.setdefault("type", "date")
+            elif model_field and model_field.get_internal_type() == "DateTimeField":
+                widget.input_type = "datetime-local"
+                widget.attrs.setdefault("type", "datetime-local")
+            elif model_field and model_field.get_internal_type() == "TimeField":
+                widget.input_type = "time"
+                widget.attrs.setdefault("type", "time")
+
             if isinstance(widget, forms.CheckboxInput):
                 widget.attrs.setdefault("class", "form-check-input")
             elif isinstance(widget, forms.CheckboxSelectMultiple):

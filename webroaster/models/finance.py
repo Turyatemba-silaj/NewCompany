@@ -228,7 +228,7 @@ class Salary(models.Model):
     def payable_advances(self):
         if not self.employee_id:
             return Advance.objects.none()
-        return self.employee.advances.exclude(approval_status="rejected").filter(status__in=["disbursed", "recovered"])
+        return self.employee.advances.exclude(approval_status="rejected").filter(approval_status="approved").exclude(status="recovered")
 
     @property
     def advance_installment_amount(self):
@@ -340,6 +340,12 @@ class Salary(models.Model):
             kwargs["update_fields"] = set(update_fields) | {"basic_salary", "overtime_pay"}
         super().save(*args, **kwargs)
 
+    def process_payroll(self):
+        self.update_basic_salary()
+        self.save(update_fields=["basic_salary", "overtime_pay", "updated_at"])
+        self.recover_advances()
+        return self
+
     def recover_advances(self):
         if not self.employee_id or self.advance_recovery_limit <= 0:
             return Decimal("0.00")
@@ -348,7 +354,7 @@ class Salary(models.Model):
         remaining_recovery = self.advance_recovery_limit
         recovered_now = Decimal("0.00")
 
-        advances = self.employee.advances.exclude(approval_status="rejected").filter(status="disbursed").order_by("disbursement_date", "created_at")
+        advances = self.employee.advances.exclude(approval_status="rejected").filter(approval_status="approved").exclude(status="recovered").order_by("disbursement_date", "created_at")
         for advance in advances:
             if remaining_recovery <= 0:
                 break
@@ -417,12 +423,21 @@ class Advance(models.Model):
     ]
     approval_status = models.CharField(max_length=20, choices=APPROVAL_STATUS_CHOICES, default='pending')
     approved_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='advances_approved')
+    VERIFICATION_STATUS_CHOICES = [
+        ('pending', 'Pending Verification'),
+        ('verified', 'Verified'),
+        ('rejected', 'Rejected'),
+    ]
+    verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS_CHOICES, default='pending')
+    verified_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, blank=True, related_name='advances_verified')
+    verified_at = models.DateTimeField(blank=True, null=True)
     disbursement_date = models.DateField(blank=True, null=True)
     
     ADVANCE_STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('disbursed', 'Disbursed'),
         ('recovered', 'Recovered'),
+        ('rejected', 'Rejected'),
     ]
     status = models.CharField(max_length=20, choices=ADVANCE_STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
@@ -444,6 +459,53 @@ class Advance(models.Model):
             kwargs["update_fields"] = set(update_fields) | {"installment_amount"}
         super().save(*args, **kwargs)
 
+    def notify(self, recipient, recipient_group, notification_type, message):
+        if not recipient or not self.pk:
+            return None
+        notification, _created = AdvanceNotification.objects.get_or_create(
+            advance=self,
+            recipient=recipient,
+            recipient_group=recipient_group,
+            notification_type=notification_type,
+            defaults={
+                "message": message,
+                "status": "pending",
+                "notified_at": timezone.now(),
+            },
+        )
+        return notification
+
+    def notify_submission(self):
+        if self.approval_status != "pending" or not self.pk:
+            return
+        message = f"{self.employee} requested a salary advance of UGX {self.amount_requested:,.2f}."
+        supervisors = Employee.objects.filter(status="active").filter(
+            models.Q(role="supervisor") | models.Q(role="manager")
+        ).distinct()
+        for employee in supervisors:
+            self.notify(employee, "Supervisor", "verification_requested", message)
+        hr_staff = Employee.objects.filter(status="active").filter(
+            models.Q(role="hr_officer") | models.Q(department="hr")
+        ).distinct()
+        for employee in hr_staff:
+            self.notify(employee, "HR Officer", "request_received", message)
+
+    def refresh_payroll(self):
+        salary = getattr(self.employee, "salary", None)
+        if salary:
+            salary.process_payroll()
+        return salary
+
+    def notify_hr_for_approval(self):
+        if self.verification_status != "verified" or self.approval_status != "pending":
+            return
+        message = f"Supervisor verification is complete for {self.employee}'s salary advance of UGX {self.amount_requested:,.2f}."
+        hr_staff = Employee.objects.filter(status="active").filter(
+            models.Q(role="hr_officer") | models.Q(department="hr")
+        ).distinct()
+        for employee in hr_staff:
+            self.notify(employee, "HR Approver", "approval_requested", message)
+
     def __str__(self):
         return f"Advance - {self.employee} ({self.amount_requested})"
 
@@ -463,6 +525,63 @@ class Advance(models.Model):
 
     class Meta:
         db_table = 'advances'
+
+
+class AdvanceNotification(models.Model):
+    """Workflow notifications for salary advance requests and decisions."""
+    notification_id = models.AutoField(primary_key=True)
+    advance = models.ForeignKey(Advance, on_delete=models.CASCADE, related_name="notifications")
+    recipient = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="advance_notifications")
+    recipient_group = models.CharField(max_length=50)
+    NOTIFICATION_TYPE_CHOICES = [
+        ("verification_requested", "Verification Requested"),
+        ("request_received", "Request Received"),
+        ("approval_requested", "Approval Requested"),
+        ("advance_verified", "Advance Verified"),
+        ("advance_approved", "Advance Approved"),
+        ("advance_rejected", "Advance Rejected"),
+        ("finance_update", "Finance Update"),
+        ("payment_requested", "Payment Requested"),
+        ("advance_paid", "Advance Paid"),
+    ]
+    notification_type = models.CharField(max_length=40, choices=NOTIFICATION_TYPE_CHOICES)
+    message = models.TextField()
+    STATUS_CHOICES = [("pending", "Pending"), ("read", "Read"), ("actioned", "Actioned")]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    decision = models.CharField(max_length=20, blank=True, default="")
+    decided_at = models.DateTimeField(blank=True, null=True)
+    notified_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def can_approve(self):
+        return self.recipient_group == "HR Approver" and self.advance.verification_status == "verified" and self.advance.approval_status == "pending"
+
+    @property
+    def can_reject(self):
+        return self.recipient_group == "HR Approver" and self.advance.verification_status == "verified" and self.advance.approval_status == "pending"
+
+    @property
+    def can_verify(self):
+        return self.recipient_group == "Supervisor" and self.advance.verification_status == "pending"
+
+    @property
+    def can_pay(self):
+        return self.recipient_group == "Finance" and self.advance.verification_status == "verified" and self.advance.approval_status == "approved" and self.advance.status == "pending"
+
+    def __str__(self):
+        return f"{self.get_notification_type_display()} - {self.recipient}"
+
+    class Meta:
+        db_table = "advance_notifications"
+        ordering = ["-notified_at", "-notification_id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["advance", "recipient", "recipient_group", "notification_type"],
+                name="unique_advance_notification",
+            )
+        ]
 
 
 class AdvanceRecovery(models.Model):

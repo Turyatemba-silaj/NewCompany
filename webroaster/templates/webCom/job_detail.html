@@ -1,5 +1,0 @@
-﻿{% extends "webroaster/public_base.html" %}
-{% block title %}{{ job.title }}{% endblock %}
-{% block content %}
-<section class="section"><p class="eyebrow">Careers</p><h1>{{ job.title }}</h1><p class="lead">{{ job.location }} - {{ job.employment_type }}{% if job.deadline %} - Deadline {{ job.deadline }}{% endif %}</p><div class="grid"><article class="card"><h3>Role Summary</h3><p>{{ job.summary|linebreaksbr }}</p><h3>Requirements</h3><p>{{ job.requirements|default:"Requirements will be discussed during screening."|linebreaksbr }}</p></article><article class="card"><h3>Online Application</h3><form method="post" enctype="multipart/form-data" class="form-grid">{% csrf_token %}{% for field in form %}<div class="form-row {% if field.name == 'experience_summary' or field.name == 'cover_note' or field.name == 'resume' %}full{% endif %}">{{ field.label_tag }}{{ field }}{{ field.errors }}</div>{% endfor %}<div class="form-row full"><button class="btn primary" type="submit">Submit Application</button></div></form></article></div></section>
-{% endblock %}

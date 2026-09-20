@@ -1,17 +1,22 @@
-﻿from datetime import timedelta
+from datetime import timedelta
+from io import BytesIO
 import mimetypes
 
 from django.conf import settings
 from django.contrib import messages
 from django.core.mail import send_mail
-from django.http import FileResponse, Http404
+from django.db import transaction
+from django.db.models import Q
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import require_model_access, require_view_access
+from .access import advance_notification_groups, require_model_access, require_view_access
 from .finance import sync_salary_table
 from .forms_hr import EmployeeDeploymentTransferForm, LeaveReviewForm
-from .models import DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Salary, Training
+from .models import AdvanceNotification, DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Salary, Training
+from .models import Advance
+from .pdf_utils import simple_pdf_response
 from .views import get_field_label, get_field_value, render_page
 
 def document_status(document, today=None):
@@ -66,9 +71,7 @@ def training_certificate(request, pk):
     return render_page(request, "webroaster/training_certificate.html", context, "training")
 
 
-def employee_profile(request, pk):
-    require_model_access(request, "employees")
-    employee = get_object_or_404(Employee, pk=pk)
+def employee_profile_context(employee):
     profile_fields = [
         "employee_id",
         "employee_number",
@@ -101,7 +104,7 @@ def employee_profile(request, pk):
         (get_field_label(Employee, field), get_field_value(employee, field))
         for field in profile_fields
     ]
-    context = {
+    return {
         "title": f"Employee Profile - {employee}",
         "employee": employee,
         "details": details,
@@ -111,7 +114,156 @@ def employee_profile(request, pk):
         "salaries": Salary.objects.filter(employee=employee).order_by("-pay_period", "-salary_id")[:5],
         "deployment_areas": employee.deployment_areas.select_related("region", "transferred_by_hr_manager").order_by("-start_date", "-deployment_area_id")[:5],
     }
+
+
+def employee_profile(request, pk):
+    require_model_access(request, "employees")
+    employee = get_object_or_404(Employee, pk=pk)
+    context = employee_profile_context(employee)
     return render_page(request, "webroaster/employee_profile.html", context, "employees")
+
+
+def employee_profile_pdf(request, pk):
+    require_model_access(request, "employees")
+    employee = get_object_or_404(Employee, pk=pk)
+    context = employee_profile_context(employee)
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.enums import TA_RIGHT
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ImportError:
+        filename = f"employee-profile-{employee.employee_number or employee.pk}.pdf".replace(" ", "-")
+        lines = [
+            f"Employee: {employee}",
+            f"Employee No.: {employee.employee_number or '-'}",
+            f"Role: {employee.get_role_display()}",
+            f"Status: {employee.get_status_display()}",
+            f"Deployment Area: {employee.current_deployment_area}",
+            "",
+            "Employee Details",
+            *[f"{label}: {value}" for label, value in context["details"]],
+            "",
+            "Deployment Areas",
+            *[f"{area.region}: {area.start_date} to {area.end_date or 'Current'} - {area.get_status_display()}" for area in context["deployment_areas"]],
+        ]
+        return simple_pdf_response("Employee Profile Report", filename, lines)
+
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        leftMargin=15 * mm,
+        rightMargin=15 * mm,
+        topMargin=14 * mm,
+        bottomMargin=14 * mm,
+        title=f"Employee Profile - {employee}",
+    )
+    styles = getSampleStyleSheet()
+    heading = ParagraphStyle("ProfileHeading", parent=styles["Heading1"], fontSize=15, leading=18, textColor=colors.HexColor("#0f2f66"), spaceAfter=3)
+    title = ParagraphStyle("ProfileTitle", parent=styles["Heading2"], fontSize=12, leading=14, textColor=colors.HexColor("#0f766e"), spaceBefore=8, spaceAfter=5)
+    normal = ParagraphStyle("ProfileNormal", parent=styles["BodyText"], fontSize=8, leading=10)
+    small = ParagraphStyle("ProfileSmall", parent=normal, fontSize=7, leading=9, textColor=colors.HexColor("#64748b"))
+    right = ParagraphStyle("ProfileRight", parent=small, alignment=TA_RIGHT)
+
+    def text(value):
+        if value is None or value == "":
+            return "-"
+        return str(value)
+
+    def p(value, style=normal):
+        return Paragraph(text(value), style)
+
+    def build_table(data, widths, header=False):
+        rendered = Table(data, colWidths=widths, hAlign="LEFT", repeatRows=1 if header else 0)
+        style = [
+            ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#d8e0ea")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]
+        if header:
+            style.extend([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#edf2f7")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#334155")),
+            ])
+        rendered.setStyle(TableStyle(style))
+        return rendered
+
+    def passport_photo():
+        if not employee.passport_photo:
+            return p("No passport photo", small)
+        try:
+            image = Image(employee.passport_photo.path, width=30 * mm, height=40 * mm)
+            image.hAlign = "CENTER"
+            return image
+        except (OSError, ValueError, AttributeError):
+            return p("Passport photo unavailable", small)
+
+    detail_rows = []
+    for index in range(0, len(context["details"]), 2):
+        first = context["details"][index]
+        second = context["details"][index + 1] if index + 1 < len(context["details"]) else ("", "")
+        detail_rows.append([p(first[0], small), p(first[1]), p(second[0], small), p(second[1])])
+
+    story = [
+        build_table([[
+            [p(getattr(settings, "COMPANY_NAME", "NewCompany"), heading), p("Employee Profile Report", small)],
+            [p("Generated", right), p(timezone.localtime().strftime("%Y-%m-%d %H:%M"), right)],
+        ]], [125 * mm, 40 * mm]),
+        Spacer(1, 6),
+        build_table([[
+            passport_photo(),
+            [
+                p(employee, heading),
+                p(f"Employee No.: {employee.employee_number or '-'}", normal),
+                p(f"Role: {employee.get_role_display()}", normal),
+                p(f"Status: {employee.get_status_display()}", normal),
+                p(f"Deployment Area: {employee.current_deployment_area}", normal),
+            ],
+        ]], [35 * mm, 130 * mm]),
+        Paragraph("Employee Details", title),
+        build_table(detail_rows, [34 * mm, 48 * mm, 34 * mm, 49 * mm]),
+    ]
+
+    story.append(Paragraph("Deployment Areas", title))
+    deployment_rows = [[p("Area", small), p("Start", small), p("End", small), p("Status", small)]]
+    deployment_rows.extend([[p(area.region), p(area.start_date), p(area.end_date or "Current"), p(area.get_status_display())] for area in context["deployment_areas"]])
+    if len(deployment_rows) == 1:
+        deployment_rows.append([p("No deployment area history."), p("-"), p("-"), p("-")])
+    story.append(build_table(deployment_rows, [60 * mm, 35 * mm, 35 * mm, 35 * mm], header=True))
+
+    story.append(Paragraph("Documents", title))
+    document_rows = [[p("Document", small), p("Expiry", small), p("Status", small)]]
+    document_rows.extend([[p(document.get_doc_type_display()), p(document.expiry_date or "-"), p(document_status(document))] for document in context["documents"]])
+    if len(document_rows) == 1:
+        document_rows.append([p("No documents recorded."), p("-"), p("-")])
+    story.append(build_table(document_rows, [75 * mm, 45 * mm, 45 * mm], header=True))
+
+    story.append(Paragraph("Training", title))
+    training_rows = [[p("Training", small), p("Period", small), p("Status", small)]]
+    training_rows.extend([[p(training.get_training_name_display()), p(f"{training.start_date} to {training.end_date}"), p(training.status)] for training in context["trainings"]])
+    if len(training_rows) == 1:
+        training_rows.append([p("No training records."), p("-"), p("-")])
+    story.append(build_table(training_rows, [75 * mm, 55 * mm, 35 * mm], header=True))
+
+    story.append(Paragraph("Leave And Salary", title))
+    summary_rows = [[p("Type", small), p("Period", small), p("Status / Amount", small)]]
+    summary_rows.extend([[p(leave.get_leave_type_display()), p(f"{leave.start_date} to {leave.end_date}"), p(leave.get_approval_status_display())] for leave in context["leaves"]])
+    summary_rows.extend([[p("Salary"), p(salary.get_pay_period_display()), p(f"Total: {salary.total_salary}")] for salary in context["salaries"]])
+    if len(summary_rows) == 1:
+        summary_rows.append([p("No leave or salary records."), p("-"), p("-")])
+    story.append(build_table(summary_rows, [48 * mm, 62 * mm, 55 * mm], header=True))
+
+    doc.build(story)
+    filename = f"employee-profile-{employee.employee_number or employee.pk}.pdf".replace(" ", "-")
+    response = HttpResponse(buffer.getvalue(), content_type="application/pdf")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 def employee_transfer(request, pk):
     require_model_access(request, "employees")
@@ -277,6 +429,100 @@ def leave_notification_action(request, notification_id, action):
     notification.decided_at = now
     notification.save(update_fields=["status", "decision", "decided_at", "updated_at"])
     return redirect("webroaster:leave_notifications")
+
+
+def advance_notifications(request):
+    require_view_access(request, "advance_notifications")
+    notifications = AdvanceNotification.objects.select_related(
+        "advance", "advance__employee", "recipient"
+    ).order_by("-notified_at", "-notification_id")
+    notification_groups = advance_notification_groups(request.user)
+    if notification_groups is not None:
+        notifications = notifications.filter(recipient_group__in=notification_groups)
+    return render_page(request, "webroaster/advance_notifications.html", {
+        "title": "Salary Advance Notifications",
+        "notifications": notifications,
+    }, "advances")
+
+
+def advance_notification_action(request, notification_id, action):
+    require_view_access(request, "advance_notification_action")
+    notification = get_object_or_404(
+        AdvanceNotification.objects.select_related("advance", "advance__employee", "recipient"),
+        pk=notification_id,
+    )
+    notification_groups = advance_notification_groups(request.user)
+    if notification_groups is not None and notification.recipient_group not in notification_groups:
+        messages.error(request, "You cannot act on this advance notification.")
+        return redirect("webroaster:advance_notifications")
+    if request.method != "POST":
+        return redirect("webroaster:advance_notifications")
+    allowed_action = (
+        action == "verify" and notification.can_verify
+    ) or (
+        action in ("approve", "reject") and notification.can_approve
+    ) or (
+        action == "pay" and notification.can_pay
+    )
+    if not allowed_action:
+        messages.error(request, "This salary advance cannot be changed from this notification.")
+        return redirect("webroaster:advance_notifications")
+
+    advance = notification.advance
+    now = timezone.now()
+    with transaction.atomic():
+        if action == "verify":
+            advance.verification_status = "verified"
+            advance.verified_by = notification.recipient
+            advance.verified_at = now
+            advance.save(update_fields=["verification_status", "verified_by", "verified_at", "updated_at"])
+            advance.notify_hr_for_approval()
+            notification_type = "advance_verified"
+            outcome = "verified"
+        elif action == "approve":
+            advance.approval_status = "approved"
+            advance.status = "pending"
+            advance.approved_by = notification.recipient
+            advance.save(update_fields=["approval_status", "status", "approved_by", "updated_at"])
+            notification_type = "advance_approved"
+            outcome = "approved"
+            finance_message = f"Salary advance for {advance.employee} was approved by HR and is ready for payment."
+            finance_staff = Employee.objects.filter(status="active").filter(
+                Q(role__in=("finance_officer", "administrator", "manager")) | Q(department="finance")
+            ).distinct()
+            for employee in finance_staff:
+                advance.notify(employee, "Finance", "payment_requested", finance_message)
+        elif action == "reject":
+            advance.approval_status = "rejected"
+            advance.status = "rejected"
+            advance.approved_by = notification.recipient
+            advance.save(update_fields=["approval_status", "status", "approved_by", "updated_at"])
+            notification_type = "advance_rejected"
+            outcome = "rejected"
+            advance.refresh_payroll()
+            advance.notify(advance.employee, "Requester", notification_type, f"Your salary advance request of UGX {advance.amount_requested:,.2f} was rejected.")
+        else:
+            advance.status = "disbursed"
+            advance.disbursement_date = advance.disbursement_date or timezone.localdate()
+            advance.save(update_fields=["status", "disbursement_date", "updated_at"])
+            advance.refresh_payroll()
+            advance.notify(advance.employee, "Requester", "advance_paid", f"Your salary advance of UGX {advance.amount_requested:,.2f} has been paid by Finance.")
+            notification_type = "advance_paid"
+            outcome = "paid"
+        notification.status = "actioned"
+        notification.decision = action
+        notification.decided_at = now
+        notification.save(update_fields=["status", "decision", "decided_at", "updated_at"])
+
+    if action == "verify":
+        messages.success(request, "Salary advance verified and sent to Human Resource for approval.")
+    elif action == "approve":
+        messages.success(request, "Salary advance approved and sent to Finance for payment.")
+    elif action == "pay":
+        messages.success(request, "Salary advance paid and payroll was updated.")
+    else:
+        messages.success(request, "Salary advance rejected and payroll was updated.")
+    return redirect("webroaster:advance_notifications")
 
 
 def disciplinary_action_has_feedback(action):

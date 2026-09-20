@@ -292,6 +292,7 @@ class Employee(models.Model):
         )
         salary.update_basic_salary()
         salary.save(update_fields=["basic_salary", "updated_at"])
+        sync_employee_user_access(self)
 
     @property
     def employee_number_name(self):
@@ -304,6 +305,58 @@ class Employee(models.Model):
 
     class Meta:
         db_table = 'employees'
+
+
+def sync_employee_user_access(employee):
+    from django.contrib.auth import get_user_model
+
+    from webroaster.access import DEFAULT_PASSWORD, sync_role_groups
+
+    role_groups = {
+        "supervisor": "Supervisor",
+        "manager": "Operations Manager",
+        "operations_officer": "Operations Manager",
+        "hr_officer": "Human Resources",
+        "finance_officer": "Finance Officer",
+        "administrator": "Head of Finance",
+    }
+    username = (employee.employee_number or "").strip()
+    email = (employee.email or "").strip()
+    if not username:
+        return
+
+    User = get_user_model()
+    if employee.status != "active":
+        matched_users = User.objects.filter(
+            models.Q(username__iexact=username) | models.Q(email__iexact=email)
+        )
+        matched_users.update(is_active=False)
+        return
+
+    group_name = role_groups.get(employee.role)
+    if not group_name:
+        return
+
+    groups_by_name = {group.name: group for group in sync_role_groups()}
+    user, created = User.objects.get_or_create(
+        username=username,
+        defaults={
+            "first_name": employee.first_name,
+            "last_name": employee.last_name,
+            "email": email,
+        },
+    )
+    user.first_name = employee.first_name
+    user.last_name = employee.last_name
+    user.email = email
+    user.is_staff = True
+    user.is_active = True
+    if group_name == "Head of Finance":
+        user.is_superuser = True
+    if created or not user.has_usable_password():
+        user.set_password(DEFAULT_PASSWORD)
+    user.save()
+    user.groups.set([groups_by_name[group_name]])
 
 
 
@@ -374,7 +427,7 @@ class Training(models.Model):
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, blank=True, null=True, related_name='trainings')
     recruit = models.CharField(max_length=255, blank=True)
     training_name = models.CharField(max_length=50, choices=TRAINING_NAME_CHOICES, default='guarding_training')
-    provider = models.CharField(max_length=255, default="TURYANS SECURITY COMPANY (U) LIMITED")
+    provider = models.CharField(max_length=255, default="NewCompany")
     start_date = models.DateField()
     end_date = models.DateField("Date of Completion")
     certificate_no = models.CharField(max_length=100, blank=True, null=True)

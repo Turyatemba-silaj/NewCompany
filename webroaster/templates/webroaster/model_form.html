@@ -240,6 +240,179 @@
                         }
                     })();
                 </script>
+            {% elif deployment_form_layout %}
+                <style>
+                    .deployment-entry-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; align-items: start; }
+                    .deployment-entry-field { min-width: 0; }
+                    .deployment-guard-panel { grid-column: 1 / -1; border: 1px solid var(--line); background: #f8fafc; padding: 10px; border-radius: 6px; }
+                    .deployment-guard-header { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 8px; color: #334155; font-size: 12px; }
+                    .deployment-guard-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+                    .deployment-shift-list { border: 1px solid var(--line); background: #fff; padding: 8px; border-radius: 6px; min-height: 120px; }
+                    .deployment-shift-list h2 { margin: 0 0 8px; font-size: 13px; color: #102a43; }
+                    .deployment-shift-list label { display: flex; gap: 7px; align-items: flex-start; padding: 5px 0; font-weight: 500; color: #111827; }
+                    .deployment-shift-list input { margin-top: 3px; }
+                    .deployment-shift-list ul { list-style: none; margin: 0; padding: 0; }
+                    .deployment-shift-list li { margin: 0; }
+                    .deployment-shift-list.is-disabled { opacity: .55; }
+                    .deployment-shift-list.is-disabled input { pointer-events: none; }
+                    .deployment-guard-empty { color: #64748b; font-size: 12px; margin: 0; }
+                    @media (max-width: 900px) {
+                        .deployment-entry-grid,
+                        .deployment-guard-grid { grid-template-columns: 1fr; }
+                    }
+                </style>
+                <div class="deployment-entry-grid">
+                    {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+                    <div class="deployment-entry-field" data-field="client">
+                        {{ form.client.label_tag }}
+                        {{ form.client }}
+                        {{ form.client.errors }}
+                    </div>
+                    <div class="deployment-entry-field" data-field="site">
+                        {{ form.site.label_tag }}
+                        {{ form.site }}
+                        {{ form.site.errors }}
+                    </div>
+                    <div class="deployment-entry-field" data-field="shift_type">
+                        {{ form.shift_type.label_tag }}
+                        {{ form.shift_type }}
+                        {{ form.shift_type.errors }}
+                    </div>
+                    <div class="deployment-entry-field" data-field="status">
+                        {{ form.status.label_tag }}
+                        {{ form.status }}
+                        {{ form.status.errors }}
+                    </div>
+                    <div class="deployment-entry-field" data-field="start_date">
+                        {{ form.start_date.label_tag }}
+                        {{ form.start_date }}
+                        {{ form.start_date.errors }}
+                    </div>
+                    <div class="deployment-entry-field" data-field="end_date">
+                        {{ form.end_date.label_tag }}
+                        {{ form.end_date }}
+                        {{ form.end_date.errors }}
+                    </div>
+                    <div class="deployment-guard-panel">
+                        <div class="deployment-guard-header">
+                            <strong>Assign Guards</strong>
+                            <span data-deployment-guard-summary>Select a site to load guards from its deployment area.</span>
+                        </div>
+                        <div class="deployment-guard-grid">
+                            <div class="deployment-shift-list" data-deployment-shift-list="day">
+                                <h2>{{ form.day_guards.label }}</h2>
+                                <div data-deployment-guard-list="day">{{ form.day_guards }}</div>
+                                {{ form.day_guards.errors }}
+                            </div>
+                            <div class="deployment-shift-list" data-deployment-shift-list="night">
+                                <h2>{{ form.night_guards.label }}</h2>
+                                <div data-deployment-guard-list="night">{{ form.night_guards }}</div>
+                                {{ form.night_guards.errors }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    (function () {
+                        const siteField = document.querySelector('[name="site"]');
+                        const shiftField = document.querySelector('[name="shift_type"]');
+                        const summary = document.querySelector("[data-deployment-guard-summary]");
+                        const lists = {
+                            day: document.querySelector('[data-deployment-guard-list="day"]'),
+                            night: document.querySelector('[data-deployment-guard-list="night"]')
+                        };
+                        const panels = {
+                            day: document.querySelector('[data-deployment-shift-list="day"]'),
+                            night: document.querySelector('[data-deployment-shift-list="night"]')
+                        };
+                        function checkedValues(name) {
+                            return new Set(Array.from(document.querySelectorAll('input[name="' + name + '"]:checked')).map(function (input) {
+                                return input.value;
+                            }));
+                        }
+                        function renderList(target, fieldName, choices, selectedValues) {
+                            const list = lists[target];
+                            if (!list) return;
+                            list.replaceChildren();
+                            if (!choices.length) {
+                                const empty = document.createElement("p");
+                                empty.className = "deployment-guard-empty";
+                                empty.textContent = "No active guards are assigned to this site's deployment area.";
+                                list.appendChild(empty);
+                                return;
+                            }
+                            choices.forEach(function (choice, index) {
+                                const label = document.createElement("label");
+                                const input = document.createElement("input");
+                                input.type = "checkbox";
+                                input.name = fieldName;
+                                input.value = choice.value;
+                                input.id = "id_" + fieldName + "_" + index;
+                                input.checked = selectedValues.has(String(choice.value));
+                                label.appendChild(input);
+                                label.appendChild(document.createTextNode(choice.label));
+                                list.appendChild(label);
+                            });
+                        }
+                        function syncShiftVisibility() {
+                            const shift = shiftField ? shiftField.value : "day_night";
+                            const dayEnabled = shift === "day" || shift === "day_night";
+                            const nightEnabled = shift === "night" || shift === "day_night";
+                            if (panels.day) panels.day.classList.toggle("is-disabled", !dayEnabled);
+                            if (panels.night) panels.night.classList.toggle("is-disabled", !nightEnabled);
+                            if (!dayEnabled) {
+                                document.querySelectorAll('input[name="day_guards"]').forEach(function (input) { input.checked = false; });
+                            }
+                            if (!nightEnabled) {
+                                document.querySelectorAll('input[name="night_guards"]').forEach(function (input) { input.checked = false; });
+                            }
+                        }
+                        function renderChoices(payload) {
+                            const choices = payload.guards || [];
+                            const daySelected = checkedValues("day_guards");
+                            const nightSelected = checkedValues("night_guards");
+                            renderList("day", "day_guards", choices, daySelected);
+                            renderList("night", "night_guards", choices, nightSelected);
+                            const site = payload.site || {};
+                            if (summary) {
+                                const area = site.deployment_area ? " - " + site.deployment_area : "";
+                                summary.textContent = choices.length
+                                    ? "Available guards: " + choices.length + area + ". Day required: " + (site.day_shift_guards || 0) + ", Night required: " + (site.night_shift_guards || 0) + "."
+                                    : "No active guards found for the selected site's deployment area.";
+                            }
+                            syncShiftVisibility();
+                        }
+                        function clearChoices(message) {
+                            renderChoices({ guards: [], site: {} });
+                            if (summary) summary.textContent = message;
+                        }
+                        function syncGuardChoices() {
+                            if (!siteField || !siteField.value) {
+                                clearChoices("Select a site to load guards from its deployment area.");
+                                return;
+                            }
+                            fetch("/api/sites/" + encodeURIComponent(siteField.value) + "/deployment-area-guards/", {
+                                headers: { "X-Requested-With": "XMLHttpRequest" }
+                            })
+                                .then(function (response) {
+                                    if (!response.ok) throw new Error("Guard lookup failed");
+                                    return response.json();
+                                })
+                                .then(renderChoices)
+                                .catch(function () {
+                                    clearChoices("Could not load guards for this site.");
+                                });
+                        }
+                        if (siteField) {
+                            siteField.addEventListener("change", syncGuardChoices);
+                            syncGuardChoices();
+                        }
+                        if (shiftField) {
+                            shiftField.addEventListener("change", syncShiftVisibility);
+                            syncShiftVisibility();
+                        }
+                    })();
+                </script>
             {% elif performance_evaluation_layout %}
                 <style>
                     .evaluation-compact { display: grid; gap: 8px; }

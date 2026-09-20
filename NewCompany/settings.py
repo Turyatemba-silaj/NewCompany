@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 import dj_database_url
 
@@ -35,11 +36,21 @@ def env_list(name, default=""):
     return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
 
 
+def database_url_requires_ssl(database_url):
+    parsed = urlparse(database_url)
+    if parsed.hostname in {"127.0.0.1", "localhost"}:
+        return False
+    if "sslmode=" in parsed.query:
+        return False
+    return True
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret.
-DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", True))
+IS_VERCEL_RUNTIME = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
+DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", not IS_VERCEL_RUNTIME))
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
 VERCEL_CONFIGURATION_ERRORS = []
@@ -51,8 +62,6 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,.vercel.app"))
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "https://*.vercel.app")
-IS_VERCEL_RUNTIME = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"))
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -110,7 +119,7 @@ if DATABASE_URL:
             DATABASE_URL,
             conn_max_age=0,
             conn_health_checks=True,
-            ssl_require=True,
+            ssl_require=database_url_requires_ssl(DATABASE_URL),
         )
     }
 else:
@@ -164,6 +173,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = '/static/'
+STATICFILES_DIRS = [BASE_DIR / 'NewCompany' / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
@@ -171,13 +181,14 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 LOGIN_URL = '/staff/login/'
 LOGIN_REDIRECT_URL = '/dashboard/'
+COMPANY_NAME = "NewCompany"
 
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
-X_FRAME_OPTIONS = "DENY"
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_SECURE_HSTS_SECONDS", "0" if DEBUG else "31536000"))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS", not DEBUG)

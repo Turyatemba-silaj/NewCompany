@@ -94,7 +94,7 @@
                 </tr>
                 <tr>
                     <th>Service Provider</th>
-                    <td>TURYANS SECURITY COMPANY (U) LIMITED</td>
+                    <td>NewCompany</td>
                 </tr>
                 <tr>
                     <th>Client</th>
@@ -193,6 +193,8 @@
                     <th>Day Shift Guards</th>
                     <th>Night Shift Guards</th>
                     <th>Total Guards</th>
+                    <th>Site Guards</th>
+                    <th>Remaining Guards</th>
                     <th>Rate Per Guard</th>
                     <th>Guard Contract Value</th>
                 </tr>
@@ -203,6 +205,8 @@
                     <td>{{ contract.day_shift_guards|thousands }}</td>
                     <td>{{ contract.night_shift_guards|thousands }}</td>
                     <td>{{ contract.number_of_guards|thousands }}</td>
+                    <td>{{ contract.site_required_guards|thousands }}</td>
+                    <td>{{ contract.remaining_guards|thousands }}</td>
                     <td>{{ contract.rate_per_guard|thousands }}</td>
                     <td>{{ contract.guard_contract_value|thousands }}</td>
                 </tr>
@@ -211,6 +215,8 @@
                     <td>{{ total_scheduled_day_guards|thousands }}</td>
                     <td>{{ total_scheduled_night_guards|thousands }}</td>
                     <td>{{ total_scheduled_guards|thousands }}</td>
+                    <td>{{ contract.site_required_guards|thousands }}</td>
+                    <td>{{ contract.remaining_guards|thousands }}</td>
                     <td>{{ contract.rate_per_guard|thousands }}</td>
                     <td>{{ scheduled_guard_contract_value|thousands }}</td>
                 </tr>

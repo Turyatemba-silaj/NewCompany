@@ -1,0 +1,74 @@
+{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="topbar">
+    <div><h1>{{ title }}</h1></div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' 'advances' %}">Advances</a>
+        <a class="btn" href="{% url 'webroaster:home' %}">Dashboard</a>
+    </div>
+</div>
+
+{% if notifications %}
+<div class="table-scroll">
+    <table class="compact-table">
+        <thead>
+            <tr>
+                <th>Employee</th>
+                <th>Amount</th>
+                <th>Message</th>
+                <th>Approval</th>
+                <th>Verification</th>
+                <th>Status</th>
+                <th>Notified At</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for notification in notifications %}
+            <tr>
+                <td>{{ notification.advance.employee }}</td>
+                <td>UGX {{ notification.advance.amount_requested|thousands }}</td>
+                <td>{{ notification.message }}</td>
+                <td>{{ notification.advance.get_approval_status_display }}</td>
+                        <td>{{ notification.advance.get_verification_status_display }}</td>
+                <td>{{ notification.advance.get_status_display }}</td>
+                <td>{{ notification.notified_at }}</td>
+                <td>
+                    {% if notification.can_verify %}
+                    <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'verify' %}">
+                        {% csrf_token %}
+                        <button class="btn primary" type="submit">Verify</button>
+                    </form>
+                    {% elif notification.can_approve %}
+                    <div class="actions">
+                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'approve' %}">
+                            {% csrf_token %}
+                            <button class="btn primary" type="submit">Approve</button>
+                        </form>
+                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'reject' %}">
+                            {% csrf_token %}
+                            <button class="btn danger" type="submit">Reject</button>
+                        </form>
+                    </div>
+                    {% elif notification.can_pay %}
+                    <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'pay' %}">
+                        {% csrf_token %}
+                        <button class="btn primary" type="submit">Pay</button>
+                    </form>
+                    {% else %}
+                        {{ notification.decision|default:notification.get_notification_type_display }}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="panel"><p class="muted">No salary advance notifications yet.</p></div>
+{% endif %}
+{% endblock %}

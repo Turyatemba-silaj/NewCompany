@@ -2,9 +2,8 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
-from django.db.models import Q
 
-from .access import role_group_permission_queryset, sync_role_group_permissions
+from .access import ROLE_GROUPS, role_group_permission_queryset, sync_role_group_permissions, sync_role_groups
 from .models import Employee
 
 
@@ -113,13 +112,14 @@ class ForgotPasswordResetForm(forms.Form):
 class AdminUserCreationForm(forms.Form):
     employee = forms.ModelChoiceField(
         label="Employee",
-        queryset=Employee.objects.filter(status="active").filter(Q(employee_number__startswith="ADMIN") | Q(employee_number__startswith="ADM") | Q(employee_number__startswith="SUP")).order_by("employee_number", "first_name", "last_name"),
+        queryset=Employee.objects.filter(status="active").order_by("employee_number", "first_name", "last_name"),
         empty_label="Select employee",
+        help_text="The employee number becomes the login username.",
         widget=forms.Select(attrs={"class": "form-control"}),
     )
     groups = forms.ModelChoiceField(
         label="Role group",
-        queryset=Group.objects.all().order_by("name"),
+        queryset=Group.objects.none(),
         required=False,
         empty_label="Select a role group",
         widget=forms.Select(attrs={"class": "form-control"}),
@@ -147,6 +147,8 @@ class AdminUserCreationForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.user_model = get_user_model()
+        sync_role_groups()
+        self.fields["groups"].queryset = Group.objects.filter(name__in=ROLE_GROUPS).order_by("name")
         self.fields["employee"].label_from_instance = self.employee_label
         self.fields["permissions"].label_from_instance = self.permission_label
         group = self.selected_group()

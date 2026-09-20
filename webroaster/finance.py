@@ -33,6 +33,7 @@ from .models import (
     SupplierProformaInvoiceItem,
     SupplierProformaItemPrice,
 )
+from .pdf_utils import simple_pdf_response
 from .views import get_config, get_field_label, render_page
 
 def sync_receivables_from_payments():
@@ -74,13 +75,11 @@ def sync_salary_table():
             employee=employee,
             defaults={"basic_salary": Decimal("0.00")},
         )
-        salary.update_basic_salary()
-        salary.save(update_fields=["basic_salary", "updated_at"])
+        salary.process_payroll()
     for salary in Salary.objects.select_related("employee").filter(employee__role__in=("guard", "supervisor")):
         if salary.employee_id in payroll_employee_ids:
             continue
-        salary.update_basic_salary()
-        salary.save(update_fields=["basic_salary", "overtime_pay", "updated_at"])
+        salary.process_payroll()
 
 
 def payroll_dashboard(request):
@@ -289,7 +288,7 @@ def aging_report(request):
     context = {
         "title": "Receivables Aging Report",
         "report_date": today,
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "report_rows": report_rows,
         "total_receipts": total_receipts,
         "total_invoices": total_invoices,
@@ -847,9 +846,7 @@ def procurement_dashboard(request):
     return render_page(request, "webroaster/procurement_dashboard.html", context, "procurement")
 
 def salary_payslip_context(salary):
-    salary.update_basic_salary()
-    salary.save(update_fields=["basic_salary", "updated_at"])
-    salary.recover_advances()
+    salary.process_payroll()
     return {
         "title": f"Payslip - {salary.employee}",
         "salary": salary,
@@ -876,12 +873,8 @@ def salary_payslip_context(salary):
             ("Other Deductions", salary.deductions),
         ],
         "advance_balance": salary.ledger_advance_balance,
-        "employer_contributions": [
-            ("NSSF Employer Contribution (10%)", salary.nssf_employer),
-        ],
         "statutory_summary": [
             ("Taxable Pay", salary.taxable_pay),
-            ("PAYE Basis", salary.paye_tax_year_basis),
             ("PAYE Deducted", salary.paye),
             ("NSSF Employee 5%", salary.nssf_employee),
             ("NSSF Employer 10%", salary.nssf_employer),
@@ -924,7 +917,24 @@ def salary_payslip_pdf(request, pk):
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError:
-        return HttpResponse("PDF export requires reportlab. Run: pip install -r requirements.txt", status=500)
+        filename = f"payslip-{employee.employee_number or employee.pk}.pdf".replace(" ", "-")
+        lines = [
+            f"Employee: {employee}",
+            f"Employee No.: {employee.employee_number or '-'}",
+            f"Role: {employee.get_role_display()}",
+            f"Pay Period: {salary.get_pay_period_display()}",
+            f"Period: {salary.period_start_date} to {salary.period_end_date}",
+            f"Gross Pay: {pdf_money(salary.gross_pay)}",
+            f"Total Deductions: {pdf_money(salary.total_deductions)}",
+            f"Net Pay: {pdf_money(salary.net_pay)}",
+            "",
+            "Earnings",
+            *[f"{label}: {pdf_money(amount)}" for label, amount in context["earnings"]],
+            "",
+            "Deductions",
+            *[f"{label}: {pdf_money(amount)}" for label, amount in context["deductions"]],
+        ]
+        return simple_pdf_response("Payslip", filename, lines)
 
     styles = getSampleStyleSheet()
     normal = ParagraphStyle("PayslipNormal", parent=styles["Normal"], fontName="Helvetica", fontSize=8, leading=10)
@@ -978,7 +988,7 @@ def salary_payslip_pdf(request, pk):
     story = []
     header = Table(
         [[
-            [p("TURYANS SECURITY COMPANY (U) LIMITED", heading), p("Payroll advice generated from approved attendance and payroll records", small)],
+            [p(getattr(settings, "COMPANY_NAME", "NewCompany"), heading), p("Payroll advice generated from approved attendance and payroll records", small)],
             [p("PAYSLIP", title), p(f"{salary.period_start_date} to {salary.period_end_date}", small)],
         ]],
         colWidths=[125 * mm, 50 * mm],
@@ -1043,19 +1053,12 @@ def salary_payslip_pdf(request, pk):
 
     statutory_rows = [[p(label, small), p(value if isinstance(value, str) else pdf_money(value), normal)] for label, value in context["statutory_summary"]]
     net_rows = key_value_rows(context["net_pay_summary"])
-    employer_rows = key_value_rows(context["employer_contributions"]) + [[p("Total NSSF", small), p(pdf_money(salary.total_nssf))]]
     lower = Table([[
-        titled_table("Uganda Statutory Summary", statutory_rows, [34 * mm, 46 * mm]),
-        titled_table("Net Pay Calculation", net_rows, [35 * mm, 30 * mm]),
-        titled_table("Employer Contributions", employer_rows, [21 * mm, 9 * mm]),
-    ]], colWidths=[80 * mm, 65 * mm, 30 * mm])
+        titled_table("Uganda Statutory Summary", statutory_rows, [42 * mm, 44 * mm]),
+        titled_table("Net Pay Calculation", net_rows, [48 * mm, 41 * mm]),
+    ]], colWidths=[86 * mm, 89 * mm])
     lower.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
     story.append(lower)
-
-    story.append(Spacer(1, 12))
-    signatures = Table([[p("Prepared By", small), p("Checked By", small), p("Employee Signature", small)]], colWidths=[58 * mm, 58 * mm, 59 * mm])
-    signatures.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.6, colors.HexColor("#0f172a")), ("TOPPADDING", (0, 0), (-1, -1), 4)]))
-    story.append(signatures)
 
     doc.build(story)
     filename = f"payslip-{employee.employee_number or employee.pk}.pdf".replace(" ", "-")
@@ -1072,7 +1075,7 @@ def invoice_document(request, pk):
     balance_due = invoice.total_amount - amount_paid
     context = {
         "title": invoice.invoice_number or invoice.generate_invoice_number(),
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "invoice": invoice,
         "client": invoice.client,
         "contract": invoice.contract,
@@ -1121,7 +1124,7 @@ def purchase_order_lpo_report(request, pk):
     )
     context = {
         "title": purchase_order.po_number or purchase_order.generate_po_number(),
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "purchase_order": purchase_order,
         "supplier": purchase_order.supplier,
         "requisition": purchase_order.requisition,
@@ -1160,7 +1163,7 @@ def payment_document_context(payment):
     balance_before = invoice.total_amount - prior_paid
     balance_after = invoice.total_amount - total_paid_to_date
     return {
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "payment": payment,
         "invoice": invoice,
         "client": invoice.client,

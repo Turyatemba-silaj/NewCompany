@@ -16,6 +16,7 @@
         {% if model_name == "incidents" %}<a class="btn" href="{% url 'webroaster:incident_report' %}">Report</a>{% endif %}
         {% if model_name == "incidents" %}<a class="btn" href="{% url 'webroaster:incident_notifications' %}">Notifications</a>{% endif %}
         {% if model_name == "leaves" %}<a class="btn" href="{% url 'webroaster:leave_notifications' %}">Notifications</a>{% endif %}
+        {% if model_name == "advances" %}<a class="btn" href="{% url 'webroaster:advance_notifications' %}">Notifications</a>{% endif %}
         {% if model_name == "disciplinary-actions" %}<a class="btn" href="{% url 'webroaster:disciplinary_notifications' %}">Notifications</a>{% endif %}
         {% if model_name == "budgets" %}<a class="btn" href="{% url 'webroaster:budget_report' %}">Budget Report</a>{% endif %}
         {% if model_name == "expenses" %}<a class="btn" href="{% url 'webroaster:expense_report' %}">Accountability Report</a>{% endif %}

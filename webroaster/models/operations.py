@@ -1,5 +1,6 @@
 ﻿from datetime import datetime, timedelta
 from decimal import Decimal
+import re
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -10,7 +11,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 
 
 class Client(models.Model):
-    """Manages security company clients"""
+    """Manages NewCompany clients."""
     client_id = models.AutoField(primary_key=True)
     client_name = models.CharField(max_length=255)
     contact_person = models.CharField(max_length=255)
@@ -82,6 +83,22 @@ class Contract(models.Model):
         return self.day_shift_guards + self.night_shift_guards
 
     @property
+    def site_required_guards(self):
+        if not self.pk:
+            return 0
+        return sum(site.number_of_guards for site in self.sites.all())
+
+    @property
+    def assigned_guards_count(self):
+        if not self.pk:
+            return 0
+        return sum(site.guards.count() for site in self.sites.all())
+
+    @property
+    def remaining_guards(self):
+        return max(self.number_of_guards - self.site_required_guards, 0)
+
+    @property
     def guard_contract_value(self):
         return self.number_of_guards * self.rate_per_guard
 
@@ -98,8 +115,14 @@ class Contract(models.Model):
         self.contract_value = self.calculate_contract_value()
         self.save(update_fields=["contract_value"])
 
+    @staticmethod
+    def client_code(client):
+        source = getattr(client, "client_name", "") or "Client"
+        letters = re.sub(r"[^A-Za-z0-9]", "", source).upper()
+        return (letters[:3] or "CLI").ljust(3, "X")
+
     def generate_contract_number(self):
-        return f"CON-{self.contract_id:06d}"
+        return f"{self.client_code(self.client)}-{self.contract_id:06d}"
 
     def clean(self):
         super().clean()
@@ -218,6 +241,7 @@ class Region(models.Model):
 class Site(models.Model):
     """Manages client sites/locations"""
     site_id = models.AutoField(primary_key=True)
+    site_code = models.CharField(max_length=40, unique=True, blank=True, null=True, editable=False)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, blank=True, null=True, related_name='sites')
     contract = models.ForeignKey(Contract, on_delete=models.SET_NULL, blank=True, null=True, related_name='sites')
     region = models.ForeignKey(Region, on_delete=models.SET_NULL, blank=True, null=True, related_name='sites')
@@ -273,8 +297,28 @@ class Site(models.Model):
     def save(self, *args, **kwargs):
         if self.contract_id and not self.client_id:
             self.client = self.contract.client
+        contract_number = self.contract.contract_number if self.contract_id else ""
+        if self.contract_id and (not self.site_code or not self.site_code.startswith(f"{contract_number}-S")):
+            self.site_code = self.generate_site_code()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "site_code"}
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def generate_site_code(self):
+        contract_number = self.contract.contract_number or self.contract.generate_contract_number()
+        existing_codes = set(
+            Site.objects.filter(contract=self.contract)
+            .exclude(pk=self.pk)
+            .values_list("site_code", flat=True)
+        )
+        sequence = 1
+        while True:
+            site_code = f"{contract_number}-S{sequence:03d}"
+            if site_code not in existing_codes:
+                return site_code
+            sequence += 1
 
     @property
     def number_of_guards(self):
@@ -643,6 +687,8 @@ class Deployment(models.Model):
     guard = models.ForeignKey('Employee', on_delete=models.CASCADE, related_name='guard_deployments', null=True, blank=True)
     site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name='deployments')
     shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, null=True, related_name='deployments')
+    day_guards = models.ManyToManyField('Employee', blank=True, related_name='day_shift_deployments')
+    night_guards = models.ManyToManyField('Employee', blank=True, related_name='night_shift_deployments')
     shift_coverage = models.CharField(max_length=20, choices=SHIFT_COVERAGE_CHOICES, default='day_night')
     start_date = models.DateField()
     end_date = models.DateField(blank=True, null=True)
@@ -659,6 +705,18 @@ class Deployment(models.Model):
     @property
     def shift_summary(self):
         return self.get_shift_coverage_display()
+
+    @property
+    def day_guards_summary(self):
+        if not self.pk:
+            return "-"
+        return ", ".join(str(guard) for guard in self.day_guards.all()) or "-"
+
+    @property
+    def night_guards_summary(self):
+        if not self.pk:
+            return "-"
+        return ", ".join(str(guard) for guard in self.night_guards.all()) or "-"
 
     def clean(self):
         super().clean()
@@ -812,7 +870,7 @@ class Attendance(models.Model):
     date = models.DateField()
     time_in = models.TimeField()
     time_out = models.TimeField(blank=True, null=True)
-    remarks = models.TextField(blank=True, null=True)
+    remarks = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -824,8 +882,7 @@ class Attendance(models.Model):
             employee=employee,
             defaults={"basic_salary": Decimal("0.00")},
         )
-        salary.update_basic_salary()
-        salary.save(update_fields=["basic_salary", "updated_at"])
+        salary.process_payroll()
 
     def impacted_salary_employees(self):
         employees = [self.employee, self.scheduled_guard, self.attended_guard]

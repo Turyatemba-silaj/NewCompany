@@ -65,7 +65,7 @@ def public_page(request, page):
             "title": "Who We Are",
             "active_public": "who-we-are",
             "heading": "A disciplined security partner built for Ugandan operations.",
-            "body": "Turyans Security Company provides trained personnel, site supervision, incident reporting, and operational accountability for clients that need dependable protection.",
+            "body": "NewCompany provides trained personnel, site supervision, incident reporting, and operational accountability for clients that need dependable protection.",
         },
         "what-we-do": {
             "title": "What We Do",
@@ -98,7 +98,14 @@ def public_page(request, page):
 
 
 def careers(request):
-    jobs = [job for job in JobPosting.objects.filter(is_active=True, is_online=True).order_by("deadline", "-posted_at") if job.is_open]
+    try:
+        jobs = [
+            job
+            for job in JobPosting.objects.filter(is_active=True, is_online=True).order_by("deadline", "-posted_at")
+            if job.is_open
+        ]
+    except DatabaseError:
+        jobs = []
     context = {
         "title": "Careers",
         "active_public": "careers",

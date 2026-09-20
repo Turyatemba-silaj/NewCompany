@@ -29,7 +29,7 @@ employee_page_list, employee_page_create, employee_page_detail, employee_page_up
     department_name="Human Resource",
     template_dir="human_resource",
     route_base="hr-employee",
-    list_fields=("first_name", "last_name", "role_name", "department", "deployment_area", "status"),
+    list_fields=("first_name", "last_name", "role", "department", "current_deployment_area", "status"),
 )
 guard_page_list, guard_page_create, guard_page_detail, guard_page_update, guard_page_delete = build_page_views(
     Guard, GuardForm, department_name="Human Resource", template_dir="human_resource", route_base="hr-guard", list_fields=("employee", "badge_number", "armed_status", "training_level")

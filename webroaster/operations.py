@@ -7,6 +7,7 @@ from xml.etree import ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.core.mail import send_mail
 from django.db import transaction
 from django.db.models import Q
@@ -14,7 +15,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import require_model_access, require_view_access
+from .access import can_access_model, require_model_access, require_view_access
 from .forms_operations import DutyRosterExportForm, DutyRosterUploadForm, IncidentGuardsOnDutyMixin, IncidentManagementForm, SupervisorDutyChecklistForm
 from .models import (
     Asset,
@@ -171,11 +172,34 @@ def rotating_available_guards(guards, required_count, work_date, cycle_start, ex
     available_guards = [guard for guard in guards if guard.pk not in excluded_guard_ids]
     return rotating_scheduled_guards(available_guards, required_count, work_date, cycle_start)
 
+def deployment_shift_guards(deployment, shift_type):
+    if not deployment or not deployment.pk:
+        return []
+    if shift_type == "day":
+        return list(deployment.day_guards.filter(status="active").order_by("employee_number", "first_name", "last_name"))
+    if shift_type == "night":
+        return list(deployment.night_guards.filter(status="active").order_by("employee_number", "first_name", "last_name"))
+    return []
+
 def site_roster_staff(site, work_date):
     if not site or not work_date:
         return []
 
     assigned_staff = site.guards.filter(
+        role__in=("guard", "supervisor"),
+        status="active",
+    )
+    active_deployments = site.deployments.filter(
+        status="active",
+        start_date__lte=work_date,
+    ).filter(Q(end_date__isnull=True) | Q(end_date__gte=work_date))
+    deployment_day_staff = Employee.objects.filter(
+        day_shift_deployments__in=active_deployments,
+        role__in=("guard", "supervisor"),
+        status="active",
+    )
+    deployment_night_staff = Employee.objects.filter(
+        night_shift_deployments__in=active_deployments,
         role__in=("guard", "supervisor"),
         status="active",
     )
@@ -192,7 +216,7 @@ def site_roster_staff(site, work_date):
             Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=work_date)
         )
     return list(
-        (assigned_staff | area_staff).distinct().order_by("employee_number", "first_name", "last_name")
+        (assigned_staff | area_staff | deployment_day_staff | deployment_night_staff).distinct().order_by("employee_number", "first_name", "last_name")
     )
 
 def load_site_scheduled_guards(site, required_count, work_date):
@@ -684,7 +708,7 @@ def roster_site_reference(site):
 
 
 def write_monthly_roster_csv(response, site, period_start, period_end):
-    company_name = getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED")
+    company_name = getattr(settings, "COMPANY_NAME", "NewCompany")
     dates, rows = build_monthly_roster_matrix(site, period_start, period_end)
     writer = csv.writer(response)
     trailing_blanks = [""] * len(dates)
@@ -1011,7 +1035,7 @@ def supervisor_checklist(request):
         "shortage_rows": shortage_rows,
         "deployments": deployments,
         "selected": selected,
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "prepared_at": timezone.localtime(),
     }
     return render_page(request, "webroaster/supervisor_checklist.html", context, "deployments")
@@ -1286,7 +1310,8 @@ def incident_notify_api(request, pk):
 
 
 def site_deployment_area_guards_api(request, pk):
-    require_model_access(request, "incidents")
+    if not (can_access_model(request.user, "incidents") or can_access_model(request.user, "deployments")):
+        raise PermissionDenied("You do not have permission to open this module.")
     if request.method != "GET":
         return JsonResponse(
             {"error": {"code": "method_not_allowed", "message": "Only GET is supported by this API endpoint."}},
@@ -1297,7 +1322,13 @@ def site_deployment_area_guards_api(request, pk):
     choices = IncidentGuardsOnDutyMixin.deployment_area_guard_choices(site)
     return JsonResponse(
         {
-            "site": {"id": site.pk, "name": site.site_name, "deployment_area": str(site.region) if site.region_id else ""},
+            "site": {
+                "id": site.pk,
+                "name": site.site_name,
+                "deployment_area": str(site.region) if site.region_id else "",
+                "day_shift_guards": site.day_shift_guards,
+                "night_shift_guards": site.night_shift_guards,
+            },
             "deployment_areas": list(regions.values_list("region_name", flat=True)),
             "guards": [{"value": value, "label": label} for value, label in choices],
         }
@@ -1380,7 +1411,7 @@ def incident_investigation_report(request, pk):
     site_guards = incident.site.guards.order_by("first_name", "last_name", "employee_number")
     context = {
         "title": f"Investigation Report - Incident {incident.pk}",
-        "company_name": getattr(settings, "COMPANY_NAME", "TURYANS SECURITY COMPANY (U) LIMITED"),
+        "company_name": getattr(settings, "COMPANY_NAME", "NewCompany"),
         "incident": incident,
         "site": incident.site,
         "client": incident.site.client,
