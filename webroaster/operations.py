@@ -1365,6 +1365,36 @@ def site_deployment_area_guards_api(request, pk):
     )
 
 
+def deployment_area_employee_guards_api(request, pk):
+    if not (can_access_model(request.user, "sites") or can_access_model(request.user, "deployments")):
+        raise PermissionDenied("You do not have permission to open this module.")
+    if request.method != "GET":
+        return JsonResponse(
+            {"error": {"code": "method_not_allowed", "message": "Only GET is supported by this API endpoint."}},
+            status=405,
+        )
+    region = get_object_or_404(Region, pk=pk)
+    today = timezone.localdate()
+    guards = (
+        Employee.objects.filter(
+            role="guard",
+            status="active",
+            deployment_areas__region=region,
+            deployment_areas__status="active",
+            deployment_areas__start_date__lte=today,
+        )
+        .filter(Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=today))
+        .distinct()
+        .order_by("employee_number", "first_name", "last_name")
+    )
+    return JsonResponse(
+        {
+            "deployment_area": {"id": region.pk, "name": region.region_name},
+            "guards": [{"value": str(guard.pk), "label": str(guard)} for guard in guards],
+        }
+    )
+
+
 def incident_manage(request, pk):
     require_view_access(request, "incident_manage")
     incident = get_object_or_404(

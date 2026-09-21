@@ -1094,13 +1094,29 @@ class SiteDeploymentAreaTests(TestCase):
         other_region = Region.objects.create(region_name="Other Guard Area")
         selected_guard = self.make_employee("SelectedAreaGuard")
         other_guard = self.make_employee("OtherAreaGuard")
+        selected_supervisor = Employee.objects.create(
+            first_name="SelectedSupervisor",
+            last_name="Assignment",
+            date_of_birth=date(1995, 1, 1),
+            gender="M",
+            phone_number="0700888888",
+            email="selected-supervisor@example.com",
+            address="Kampala",
+            national_id="NIN-SITE-SelectedSupervisor",
+            hire_date=date(2026, 1, 1),
+            role="supervisor",
+            department="operations",
+            status="active",
+        )
         DeploymentArea.objects.create(employee=selected_guard, region=selected_region, start_date=timezone.localdate(), status="active")
         DeploymentArea.objects.create(employee=other_guard, region=other_region, start_date=timezone.localdate(), status="active")
+        DeploymentArea.objects.create(employee=selected_supervisor, region=selected_region, start_date=timezone.localdate(), status="active")
 
         form = SiteForm(data={"region": selected_region.pk})
 
         self.assertIn(selected_guard, form.fields["guards"].queryset)
         self.assertNotIn(other_guard, form.fields["guards"].queryset)
+        self.assertNotIn(selected_supervisor, form.fields["guards"].queryset)
 
     def test_site_form_rejects_guard_outside_selected_deployment_area(self):
         selected_region = Region.objects.create(region_name="Reject Selected Area")

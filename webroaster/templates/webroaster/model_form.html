@@ -939,7 +939,75 @@
             wrapper.innerHTML = template.innerHTML.replace(/__prefix__/g, index);
             rows.appendChild(wrapper.firstElementChild);
             totalForms.value = index + 1;
+            if (window.syncSiteGuardRows) window.syncSiteGuardRows(rows.lastElementChild);
         });
+    })();
+</script>
+{% endif %}
+
+{% if model_name == "sites" and entry_formset %}
+<script>
+    (function () {
+        function selectedOptions(select) {
+            return new Map(Array.from(select.selectedOptions).map(function (option) {
+                return [String(option.value), option.textContent];
+            }));
+        }
+        function renderGuardOptions(select, guards, selected) {
+            select.replaceChildren();
+            guards.forEach(function (guard) {
+                const option = document.createElement("option");
+                option.value = guard.value;
+                option.textContent = guard.label;
+                option.selected = selected.has(String(guard.value));
+                select.appendChild(option);
+            });
+            selected.forEach(function (label, value) {
+                if (guards.some(function (guard) { return String(guard.value) === value; })) return;
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                option.selected = true;
+                select.appendChild(option);
+            });
+        }
+        function syncSiteGuardRow(row) {
+            if (!row) return;
+            const regionField = row.querySelector('select[name$="-region"], select[name="region"]');
+            const guardsField = row.querySelector('select[name$="-guards"], select[name="guards"]');
+            if (!regionField || !guardsField) return;
+            const selected = selectedOptions(guardsField);
+            if (!regionField.value) {
+                guardsField.replaceChildren();
+                return;
+            }
+            fetch("/api/deployment-areas/" + encodeURIComponent(regionField.value) + "/employee-guards/", {
+                headers: { "X-Requested-With": "XMLHttpRequest" }
+            })
+                .then(function (response) {
+                    if (!response.ok) throw new Error("Guard lookup failed");
+                    return response.json();
+                })
+                .then(function (payload) {
+                    renderGuardOptions(guardsField, payload.guards || [], selected);
+                })
+                .catch(function () {
+                    renderGuardOptions(guardsField, [], selected);
+                });
+        }
+        window.syncSiteGuardRows = function (scope) {
+            const targetRows = scope ? [scope] : Array.from(document.querySelectorAll(".entry-row"));
+            targetRows.forEach(function (row) {
+                const regionField = row.querySelector('select[name$="-region"], select[name="region"]');
+                if (!regionField || regionField.dataset.siteGuardBound === "1") return;
+                regionField.dataset.siteGuardBound = "1";
+                regionField.addEventListener("change", function () {
+                    syncSiteGuardRow(row);
+                });
+                syncSiteGuardRow(row);
+            });
+        };
+        window.syncSiteGuardRows();
     })();
 </script>
 {% endif %}

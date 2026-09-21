@@ -100,8 +100,18 @@ class SiteForm(StyledModelForm):
         self.fields["client"].required = True
         self.fields["region"].label = "Deployment Area"
         self.fields["region"].required = False
+        self.fields["region"].queryset = self.deployment_area_queryset_for_field()
         self.fields["guards"].queryset = self.guard_queryset_for_selected_region()
         self.fields["guards"].required = False
+
+    def deployment_area_queryset_for_field(self):
+        from .forms_hr import employee_deployment_area_queryset
+
+        queryset = employee_deployment_area_queryset()
+        region_id = self.selected_region_id()
+        if region_id:
+            queryset = (queryset | Region.objects.filter(pk=region_id)).distinct()
+        return queryset
 
     def selected_region_id(self):
         if self.is_bound:
@@ -113,7 +123,7 @@ class SiteForm(StyledModelForm):
 
     def guard_queryset_for_selected_region(self):
         region_id = self.selected_region_id()
-        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active").only(
+        base_queryset = Employee.objects.filter(role="guard", status="active").only(
             "employee_id",
             "employee_number",
             "first_name",
@@ -523,6 +533,16 @@ class DeploymentAreaForm(DateRangeValidationMixin, StyledModelForm):
         fields = "__all__"
         widgets = {"start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if "region" in self.fields:
+            from .forms_hr import employee_deployment_area_queryset
+
+            queryset = employee_deployment_area_queryset()
+            if self.instance and self.instance.pk and self.instance.region_id:
+                queryset = (queryset | Region.objects.filter(pk=self.instance.region_id)).distinct()
+            self.fields["region"].queryset = queryset
+
 
 class DutyRosterUploadForm(forms.Form):
     site = forms.ModelChoiceField(queryset=Site.objects.all(), required=False)
@@ -537,7 +557,7 @@ class DutyRosterExportForm(forms.Form):
 
 class SupervisorDutyChecklistForm(forms.Form):
     deployment_area = forms.ModelChoiceField(
-        queryset=Region.objects.all().order_by("region_name"),
+        queryset=Region.objects.none(),
         label="Deployment Area",
     )
     shift_type = forms.ChoiceField(
@@ -549,6 +569,12 @@ class SupervisorDutyChecklistForm(forms.Form):
         label="Duty Date",
         initial=timezone.localdate,
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from .forms_hr import employee_deployment_area_queryset
+
+        self.fields["deployment_area"].queryset = employee_deployment_area_queryset()
 
 
 class AttendanceForm(StyledModelForm):
