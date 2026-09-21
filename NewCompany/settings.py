@@ -60,8 +60,15 @@ if not SECRET_KEY:
     else:
         VERCEL_CONFIGURATION_ERRORS.append("Set SECRET_KEY to a unique production value.")
 
-ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", os.environ.get("ALLOWED_HOSTS", "127.0.0.1,localhost,.vercel.app"))
-CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", "https://*.vercel.app")
+vercel_host = os.environ.get("VERCEL_URL", "").strip()
+default_allowed_hosts = "127.0.0.1,localhost,.vercel.app"
+if vercel_host:
+    default_allowed_hosts = f"{default_allowed_hosts},{vercel_host}"
+ALLOWED_HOSTS = env_list("DJANGO_ALLOWED_HOSTS", os.environ.get("ALLOWED_HOSTS", default_allowed_hosts))
+default_csrf_origins = "https://*.vercel.app"
+if vercel_host:
+    default_csrf_origins = f"{default_csrf_origins},https://{vercel_host}"
+CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS", default_csrf_origins)
 # Application definition
 
 INSTALLED_APPS = [
