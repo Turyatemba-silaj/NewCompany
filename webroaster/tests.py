@@ -967,25 +967,47 @@ class SiteDeploymentAreaTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Assign no more than 2 day shift guard", str(form.errors["day_guards"]))
 
-    def test_deployment_form_displays_site_assigned_guards_without_deployment_area(self):
-        region = Region.objects.create(region_name="Deployment Direct Guard Region")
+    def test_deployment_form_uses_employee_guards_filtered_by_deployment_area(self):
+        region = Region.objects.create(region_name="Deployment Area Guard Region")
+        other_region = Region.objects.create(region_name="Deployment Other Guard Region")
         contract = self.make_contract()
         site = Site.objects.create(
             client=contract.client,
             contract=contract,
             region=region,
-            site_name="Deployment Direct Guard Site",
+            site_name="Deployment Area Guard Site",
             site_address="Kampala",
             day_shift_guards=1,
             night_shift_guards=0,
         )
-        guard = self.make_employee("DirectDeploymentGuard")
-        site.guards.add(guard)
+        area_guard = self.make_employee("AreaDeploymentGuard")
+        other_area_guard = self.make_employee("OtherDeploymentGuard")
+        site_only_guard = self.make_employee("SiteOnlyDeploymentGuard")
+        supervisor = Employee.objects.create(
+            first_name="DeploymentSupervisor",
+            last_name="Assignment",
+            date_of_birth=date(1995, 1, 1),
+            gender="M",
+            phone_number="0700999999",
+            email="deployment-supervisor@example.com",
+            address="Kampala",
+            national_id="NIN-SITE-DeploymentSupervisor",
+            hire_date=date(2026, 1, 1),
+            role="supervisor",
+            department="operations",
+            status="active",
+        )
+        DeploymentArea.objects.create(employee=area_guard, region=region, start_date=timezone.localdate(), status="active")
+        DeploymentArea.objects.create(employee=other_area_guard, region=other_region, start_date=timezone.localdate(), status="active")
+        DeploymentArea.objects.create(employee=supervisor, region=region, start_date=timezone.localdate(), status="active")
+        site.guards.add(site_only_guard)
 
         form = DeploymentForm(data={"site": site.pk})
 
-        self.assertIn(guard, form.fields["day_guards"].queryset)
-        self.assertIn(guard, form.fields["night_guards"].queryset)
+        self.assertIn(area_guard, form.fields["day_guards"].queryset)
+        self.assertNotIn(other_area_guard, form.fields["day_guards"].queryset)
+        self.assertNotIn(site_only_guard, form.fields["day_guards"].queryset)
+        self.assertNotIn(supervisor, form.fields["day_guards"].queryset)
 
     def test_deployment_form_assigns_day_and_night_guards_by_shift_count(self):
         region = Region.objects.create(region_name="Deployment Shift Guard Region")

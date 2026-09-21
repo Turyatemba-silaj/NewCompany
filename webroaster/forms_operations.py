@@ -421,7 +421,7 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
 
     def guard_queryset_for_selected_site(self):
         site_id = self.selected_site_id()
-        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active").only(
+        base_queryset = Employee.objects.filter(role="guard", status="active").only(
             "employee_id",
             "employee_number",
             "first_name",
@@ -447,7 +447,6 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
             base_queryset.filter(
                 Q(deployment_areas__region_id__in=region_ids, deployment_areas__status="active", deployment_areas__start_date__lte=today)
                 & (Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=today))
-                | Q(assigned_sites=site)
                 | Q(pk__in=assigned_ids)
             )
             .distinct()

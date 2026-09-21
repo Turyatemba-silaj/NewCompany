@@ -1336,13 +1336,20 @@ def site_deployment_area_guards_api(request, pk):
         )
     site = get_object_or_404(Site.objects.select_related("region"), pk=pk)
     regions = site.deployment_area_regions()
-    choices_by_value = {value: label for value, label in IncidentGuardsOnDutyMixin.deployment_area_guard_choices(site)}
-    site_guards = (
-        site.guards.filter(role__in=("guard", "supervisor"), status="active")
-        .order_by("employee_number", "first_name", "last_name")
-    )
-    for guard in site_guards:
-        choices_by_value[str(guard.pk)] = str(guard)
+    guards = Employee.objects.none()
+    if regions.exists():
+        guards = (
+            Employee.objects.filter(
+                role="guard",
+                status="active",
+                deployment_areas__region__in=regions,
+                deployment_areas__status="active",
+                deployment_areas__start_date__lte=timezone.localdate(),
+            )
+            .filter(Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=timezone.localdate()))
+            .distinct()
+            .order_by("employee_number", "first_name", "last_name")
+        )
     return JsonResponse(
         {
             "site": {
@@ -1353,7 +1360,7 @@ def site_deployment_area_guards_api(request, pk):
                 "night_shift_guards": site.night_shift_guards,
             },
             "deployment_areas": list(regions.values_list("region_name", flat=True)),
-            "guards": [{"value": value, "label": label} for value, label in choices_by_value.items()],
+            "guards": [{"value": str(guard.pk), "label": str(guard)} for guard in guards],
         }
     )
 
