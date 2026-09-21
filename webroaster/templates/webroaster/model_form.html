@@ -325,10 +325,29 @@
                             day: document.querySelector('[data-deployment-shift-list="day"]'),
                             night: document.querySelector('[data-deployment-shift-list="night"]')
                         };
-                        function checkedValues(name) {
-                            return new Set(Array.from(document.querySelectorAll('input[name="' + name + '"]:checked')).map(function (input) {
-                                return input.value;
-                            }));
+                        function selectedChoices(name) {
+                            const choices = [];
+                            document.querySelectorAll('input[name="' + name + '"]:checked').forEach(function (input) {
+                                const label = input.closest("label");
+                                choices.push({ value: input.value, label: label ? label.textContent.trim() : input.value });
+                            });
+                            document.querySelectorAll('select[name="' + name + '"] option:checked').forEach(function (option) {
+                                choices.push({ value: option.value, label: option.textContent.trim() });
+                            });
+                            return choices;
+                        }
+                        function selectedValues(choices) {
+                            return new Set(choices.map(function (choice) { return String(choice.value); }));
+                        }
+                        function mergeChoices(choices, selected) {
+                            const seen = new Set(choices.map(function (choice) { return String(choice.value); }));
+                            selected.forEach(function (choice) {
+                                if (!seen.has(String(choice.value))) {
+                                    choices.push(choice);
+                                    seen.add(String(choice.value));
+                                }
+                            });
+                            return choices;
                         }
                         function renderList(target, fieldName, choices, selectedValues) {
                             const list = lists[target];
@@ -369,10 +388,11 @@
                         }
                         function renderChoices(payload) {
                             const choices = payload.guards || [];
-                            const daySelected = checkedValues("day_guards");
-                            const nightSelected = checkedValues("night_guards");
-                            renderList("day", "day_guards", choices, daySelected);
-                            renderList("night", "night_guards", choices, nightSelected);
+                            const daySelectedChoices = selectedChoices("day_guards");
+                            const nightSelectedChoices = selectedChoices("night_guards");
+                            const allChoices = mergeChoices(choices.slice(), daySelectedChoices.concat(nightSelectedChoices));
+                            renderList("day", "day_guards", allChoices, selectedValues(daySelectedChoices));
+                            renderList("night", "night_guards", allChoices, selectedValues(nightSelectedChoices));
                             const site = payload.site || {};
                             if (summary) {
                                 const area = site.deployment_area ? " - " + site.deployment_area : "";

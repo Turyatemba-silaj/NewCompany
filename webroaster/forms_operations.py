@@ -447,6 +447,7 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
             base_queryset.filter(
                 Q(deployment_areas__region_id__in=region_ids, deployment_areas__status="active", deployment_areas__start_date__lte=today)
                 & (Q(deployment_areas__end_date__isnull=True) | Q(deployment_areas__end_date__gte=today))
+                | Q(assigned_sites=site)
                 | Q(pk__in=assigned_ids)
             )
             .distinct()

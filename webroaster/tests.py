@@ -967,6 +967,26 @@ class SiteDeploymentAreaTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn("Assign no more than 2 day shift guard", str(form.errors["day_guards"]))
 
+    def test_deployment_form_displays_site_assigned_guards_without_deployment_area(self):
+        region = Region.objects.create(region_name="Deployment Direct Guard Region")
+        contract = self.make_contract()
+        site = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Deployment Direct Guard Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        guard = self.make_employee("DirectDeploymentGuard")
+        site.guards.add(guard)
+
+        form = DeploymentForm(data={"site": site.pk})
+
+        self.assertIn(guard, form.fields["day_guards"].queryset)
+        self.assertIn(guard, form.fields["night_guards"].queryset)
+
     def test_deployment_form_assigns_day_and_night_guards_by_shift_count(self):
         region = Region.objects.create(region_name="Deployment Shift Guard Region")
         client = Client.objects.create(
