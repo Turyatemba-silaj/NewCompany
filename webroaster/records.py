@@ -63,6 +63,9 @@ def optimized_model_queryset(config, fields=None):
     select_fields = []
     prefetch_fields = []
     for field_name in fields or []:
+        if model.__name__ == "Employee" and field_name == "current_deployment_area":
+            prefetch_fields.append("deployment_areas__region")
+            continue
         try:
             model_field = model._meta.get_field(field_name)
         except FieldDoesNotExist:

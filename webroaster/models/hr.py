@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import DatabaseError, models
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
@@ -213,12 +213,27 @@ class Employee(models.Model):
     @property
     def current_deployment_area(self):
         today = timezone.localdate()
-        area = self.deployment_areas.filter(
-            status='active',
-            start_date__lte=today,
-        ).filter(
-            models.Q(end_date__isnull=True) | models.Q(end_date__gte=today)
-        ).select_related('region').order_by('-start_date', '-deployment_area_id').first()
+        prefetched_areas = getattr(self, "_prefetched_objects_cache", {}).get("deployment_areas")
+        if prefetched_areas is not None:
+            active_areas = [
+                area
+                for area in prefetched_areas
+                if area.status == "active"
+                and area.start_date <= today
+                and (area.end_date is None or area.end_date >= today)
+            ]
+            active_areas.sort(key=lambda area: (area.start_date, area.deployment_area_id), reverse=True)
+            area = active_areas[0] if active_areas else None
+            return area.region if area else "-"
+        try:
+            area = self.deployment_areas.filter(
+                status='active',
+                start_date__lte=today,
+            ).filter(
+                models.Q(end_date__isnull=True) | models.Q(end_date__gte=today)
+            ).select_related('region').order_by('-start_date', '-deployment_area_id').first()
+        except DatabaseError:
+            return "-"
         return area.region if area else "-"
 
     @property
