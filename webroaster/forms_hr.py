@@ -1,6 +1,6 @@
 ﻿from django import forms
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Case, IntegerField, Q, When
 from django.utils import timezone
 
@@ -120,7 +120,12 @@ class EmployeeForm(StyledModelForm):
         employee = super().save(commit=commit)
         deployment_area = self.cleaned_data.get("deployment_area")
         if commit and employee.role in {"guard", "supervisor"} and deployment_area and not self.current_area:
-            DeploymentArea.objects.create(employee=employee, region=deployment_area, start_date=employee.hire_date or timezone.localdate(), status="active")
+            try:
+                DeploymentArea.objects.create(employee=employee, region=deployment_area, start_date=employee.hire_date or timezone.localdate(), status="active")
+            except DatabaseError as exc:
+                warnings = getattr(employee, "save_warnings", [])
+                warnings.append(f"Deployment area was not assigned: {exc.__class__.__name__}.")
+                employee.save_warnings = warnings
         return employee
 
 

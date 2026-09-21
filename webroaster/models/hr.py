@@ -1,5 +1,6 @@
 ﻿from datetime import datetime, timedelta
 from decimal import Decimal
+import logging
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -8,6 +9,8 @@ from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
 from django.core.validators import MaxValueValidator, MinValueValidator
+
+logger = logging.getLogger(__name__)
 
 class Role(models.Model):
     """Manages employee roles"""
@@ -301,13 +304,22 @@ class Employee(models.Model):
         if update_fields is not None:
             kwargs["update_fields"] = set(update_fields) | {"employee_number", "salary_scale"}
         super().save(*args, **kwargs)
-        salary, _created = Salary.objects.get_or_create(
-            employee=self,
-            defaults={"basic_salary": Decimal("0.00")},
-        )
-        salary.update_basic_salary()
-        salary.save(update_fields=["basic_salary", "updated_at"])
-        sync_employee_user_access(self)
+        self.save_warnings = []
+        try:
+            salary, _created = Salary.objects.get_or_create(
+                employee=self,
+                defaults={"basic_salary": Decimal("0.00")},
+            )
+            salary.update_basic_salary()
+            salary.save(update_fields=["basic_salary", "updated_at"])
+        except DatabaseError as exc:
+            logger.exception("Employee %s saved, but salary sync failed.", self.pk)
+            self.save_warnings.append(f"Salary profile was not updated: {exc.__class__.__name__}.")
+        try:
+            sync_employee_user_access(self)
+        except Exception as exc:
+            logger.exception("Employee %s saved, but user access sync failed.", self.pk)
+            self.save_warnings.append(f"User access was not updated: {exc.__class__.__name__}.")
 
     @property
     def employee_number_name(self):

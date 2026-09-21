@@ -81,6 +81,14 @@ def optimized_model_queryset(config, fields=None):
     return queryset
 
 
+def show_save_warnings(request, objects):
+    if not isinstance(objects, (list, tuple)):
+        objects = [objects]
+    for obj in objects:
+        for warning in getattr(obj, "save_warnings", []):
+            messages.warning(request, warning)
+
+
 def incident_guard_choices_by_site():
     choices_by_site = {}
     sites = Site.objects.select_related("region").filter(region__isnull=False).order_by("site_name")
@@ -646,6 +654,7 @@ def model_create(request, model_name):
     )
     if request.method == "POST" and entry_formset.is_valid():
         objects = entry_formset.save()
+        show_save_warnings(request, objects)
         if model_name == "advances":
             for advance in objects:
                 advance.notify_submission()
@@ -752,6 +761,7 @@ def model_update(request, model_name, pk):
             proforma_items_are_valid = False
         if form_is_valid and formset_is_valid and invoice_items_are_valid and proforma_items_are_valid:
             obj = form.save()
+            show_save_warnings(request, obj)
             if model_name == "advances":
                 if previous_approval_status == "pending" and obj.approval_status == "approved":
                     obj.status = "disbursed"
