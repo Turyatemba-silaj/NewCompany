@@ -949,6 +949,7 @@ class Attendance(models.Model):
             duplicate_schedule = Attendance.objects.filter(
                 scheduled_guard=self.scheduled_guard,
                 date=self.date,
+                shift__shift_type=self.shift.shift_type if self.shift_id else None,
             )
             if self.pk:
                 duplicate_schedule = duplicate_schedule.exclude(pk=self.pk)

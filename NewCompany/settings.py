@@ -36,6 +36,14 @@ def env_list(name, default=""):
     return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
 
 
+def first_env_value(*names):
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None
+
+
 def database_url_requires_ssl(database_url):
     parsed = urlparse(database_url)
     if parsed.hostname in {"127.0.0.1", "localhost"}:
@@ -117,7 +125,13 @@ WSGI_APPLICATION = 'NewCompany.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = first_env_value(
+    "DATABASE_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "postgresql",
+)
 
 if DATABASE_URL:
     # Hosted production PostgreSQL
@@ -142,7 +156,9 @@ else:
         }
     }
     if not DEBUG:
-        VERCEL_CONFIGURATION_ERRORS.append("Set DATABASE_URL to a hosted PostgreSQL database.")
+        VERCEL_CONFIGURATION_ERRORS.append(
+            "Set DATABASE_URL to a hosted PostgreSQL database, or provide a supported Postgres URL env var."
+        )
 
 
 # Password validation
