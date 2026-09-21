@@ -914,7 +914,7 @@ class SiteDeploymentAreaTests(TestCase):
         self.assertEqual(site_one.site_code, f"{contract.contract_number}-S001")
         self.assertEqual(site_two.site_code, f"{contract.contract_number}-S002")
 
-    def test_deployment_form_requires_day_guards_to_match_site_day_shift(self):
+    def test_deployment_form_allows_fewer_day_guards_than_site_day_shift(self):
         region = Region.objects.create(region_name="Deployment Without Guard Region")
         contract = self.make_contract()
         site = Site.objects.create(
@@ -936,8 +936,36 @@ class SiteDeploymentAreaTests(TestCase):
             "status": "active",
         })
 
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_deployment_form_rejects_day_guards_above_site_day_shift(self):
+        region = Region.objects.create(region_name="Deployment Guard Limit Region")
+        contract = self.make_contract()
+        site = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Deployment Guard Limit Site",
+            site_address="Kampala",
+            day_shift_guards=2,
+            night_shift_guards=0,
+        )
+        guards = [self.make_employee(f"LimitGuard{index}") for index in range(3)]
+        for guard in guards:
+            DeploymentArea.objects.create(employee=guard, region=region, start_date=timezone.localdate(), status="active")
+
+        form = DeploymentForm(data={
+            "client": contract.client.pk,
+            "site": site.pk,
+            "shift_type": "day",
+            "day_guards": [guard.pk for guard in guards],
+            "start_date": date(2026, 1, 1),
+            "end_date": date(2026, 12, 31),
+            "status": "active",
+        })
+
         self.assertFalse(form.is_valid())
-        self.assertIn("Assign exactly 1 day shift guard", str(form.errors["day_guards"]))
+        self.assertIn("Assign no more than 2 day shift guard", str(form.errors["day_guards"]))
 
     def test_deployment_form_assigns_day_and_night_guards_by_shift_count(self):
         region = Region.objects.create(region_name="Deployment Shift Guard Region")

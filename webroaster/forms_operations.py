@@ -470,12 +470,12 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
         if site:
             if shift_type in ("day", "day_night"):
                 day_count = day_guards.count() if day_guards is not None else 0
-                if day_count != site.day_shift_guards:
-                    self.add_error("day_guards", f"Assign exactly {site.day_shift_guards} day shift guard(s) for this site.")
+                if day_count > site.day_shift_guards:
+                    self.add_error("day_guards", f"Assign no more than {site.day_shift_guards} day shift guard(s) for this site.")
             if shift_type in ("night", "day_night"):
                 night_count = night_guards.count() if night_guards is not None else 0
-                if night_count != site.night_shift_guards:
-                    self.add_error("night_guards", f"Assign exactly {site.night_shift_guards} night shift guard(s) for this site.")
+                if night_count > site.night_shift_guards:
+                    self.add_error("night_guards", f"Assign no more than {site.night_shift_guards} night shift guard(s) for this site.")
             if shift_type == "day" and night_guards:
                 self.add_error("night_guards", "Night guards can only be assigned to a Night or Day and Night deployment.")
             if shift_type == "night" and day_guards:
