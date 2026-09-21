@@ -3,6 +3,19 @@
 from django.db import migrations, models
 
 
+def ensure_invoice_number_column(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name = 'invoices' AND column_name = 'invoice_number'
+            """
+        )
+        if not cursor.fetchone():
+            schema_editor.execute("ALTER TABLE invoices ADD COLUMN invoice_number varchar(20) NULL")
+
+
 def backfill_invoice_numbers(apps, schema_editor):
     schema_editor.execute(
         """
@@ -35,6 +48,7 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
+        migrations.RunPython(ensure_invoice_number_column, migrations.RunPython.noop),
         migrations.RunPython(backfill_invoice_numbers, migrations.RunPython.noop),
     ]
 

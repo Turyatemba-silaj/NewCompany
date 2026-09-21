@@ -18,33 +18,55 @@ def ensure_employee_role_column(apps, schema_editor):
             schema_editor.execute("ALTER TABLE employees ADD COLUMN role_id bigint NULL")
 
 
-def backfill_employee_roles(apps, schema_editor):
+def employee_columns(schema_editor):
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
             """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'employees'
+            """
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def ensure_employee_department_column(apps, schema_editor):
+    if "department" not in employee_columns(schema_editor):
+        schema_editor.execute(
+            "ALTER TABLE employees ADD COLUMN department varchar(50) NOT NULL DEFAULT 'operations'"
+        )
+
+
+def backfill_employee_roles(apps, schema_editor):
+    columns = employee_columns(schema_editor)
+    role_source = "role_name" if "role_name" in columns else "role"
+    position_source = "position_title" if "position_title" in columns else role_source
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            f"""
             UPDATE employees
             SET
                 role = CASE
-                    WHEN lower(coalesce(role_name, '')) LIKE '%guard%' THEN 'guard'
-                    WHEN lower(coalesce(role_name, '')) LIKE '%supervisor%' THEN 'supervisor'
-                    WHEN lower(coalesce(role_name, '')) LIKE '%hr%' THEN 'hr_officer'
-                    WHEN lower(coalesce(role_name, '')) LIKE '%finance%' THEN 'finance_officer'
-                    WHEN lower(coalesce(role_name, '')) LIKE '%admin%' THEN 'administrator'
-                    WHEN lower(coalesce(role_name, '')) LIKE '%manager%' THEN 'manager'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%guard%' THEN 'guard'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%supervisor%' THEN 'supervisor'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%hr%' THEN 'hr_officer'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%finance%' THEN 'finance_officer'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%admin%' THEN 'administrator'
+                    WHEN lower(coalesce({role_source}::text, '')) LIKE '%manager%' THEN 'manager'
                     ELSE 'operations_officer'
                 END,
                 position = CASE
-                    WHEN lower(coalesce(position_title, role_name, '')) LIKE '%supervisor%' THEN 'site_supervisor'
-                    WHEN lower(coalesce(position_title, role_name, '')) LIKE '%hr%' THEN 'hr_officer'
-                    WHEN lower(coalesce(position_title, role_name, '')) LIKE '%finance%' THEN 'finance_officer'
-                    WHEN lower(coalesce(position_title, role_name, '')) LIKE '%admin%' THEN 'administrator'
-                    WHEN lower(coalesce(position_title, role_name, '')) LIKE '%manager%' THEN 'operations_officer'
+                    WHEN lower(coalesce({position_source}::text, {role_source}::text, '')) LIKE '%supervisor%' THEN 'site_supervisor'
+                    WHEN lower(coalesce({position_source}::text, {role_source}::text, '')) LIKE '%hr%' THEN 'hr_officer'
+                    WHEN lower(coalesce({position_source}::text, {role_source}::text, '')) LIKE '%finance%' THEN 'finance_officer'
+                    WHEN lower(coalesce({position_source}::text, {role_source}::text, '')) LIKE '%admin%' THEN 'administrator'
+                    WHEN lower(coalesce({position_source}::text, {role_source}::text, '')) LIKE '%manager%' THEN 'operations_officer'
                     ELSE 'security_guard'
                 END,
                 department = CASE
-                    WHEN lower(coalesce(department, role_name, '')) LIKE '%hr%' THEN 'hr'
-                    WHEN lower(coalesce(department, role_name, '')) LIKE '%finance%' THEN 'finance'
-                    WHEN lower(coalesce(department, role_name, '')) LIKE '%admin%' THEN 'admin'
+                    WHEN lower(coalesce(department::text, {role_source}::text, '')) LIKE '%hr%' THEN 'hr'
+                    WHEN lower(coalesce(department::text, {role_source}::text, '')) LIKE '%finance%' THEN 'finance'
+                    WHEN lower(coalesce(department::text, {role_source}::text, '')) LIKE '%admin%' THEN 'admin'
                     ELSE 'operations'
                 END
             """
@@ -81,6 +103,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(ensure_employee_role_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_employee_department_column, migrations.RunPython.noop),
         migrations.AddField(
             model_name='employee',
             name='armed_status',

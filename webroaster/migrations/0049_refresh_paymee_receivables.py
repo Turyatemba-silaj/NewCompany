@@ -1,7 +1,36 @@
 ﻿from django.db import migrations
 
 
+def table_columns(schema_editor, table_name):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = %s
+            """,
+            [table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
 def refresh_paymee_receivables(apps, schema_editor):
+    invoice_columns = table_columns(schema_editor, "invoices")
+    paymee_columns = table_columns(schema_editor, "paymees")
+    required_invoice_columns = {"invoice_id", "client_id", "total_amount", "due_date", "status"}
+    required_paymee_columns = {
+        "invoice_id",
+        "client_id",
+        "total_amount",
+        "amount_paid",
+        "due_date",
+        "last_payment_date",
+        "status",
+        "updated_at",
+    }
+    if not required_invoice_columns.issubset(invoice_columns) or not required_paymee_columns.issubset(paymee_columns):
+        return
+
     schema_editor.execute(
         """
         WITH payment_totals AS (

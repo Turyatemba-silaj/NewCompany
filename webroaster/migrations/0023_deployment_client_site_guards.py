@@ -4,20 +4,53 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
-def copy_deployment_data(apps, schema_editor):
-    Deployment = apps.get_model('webroaster', 'Deployment')
-    Site = apps.get_model('webroaster', 'Site')
+def table_columns(schema_editor, table_name):
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = %s
+            """,
+            [table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
 
-    for deployment in Deployment.objects.exclude(site_id__isnull=True):
-        if deployment.client_id is None:
-            site = Site.objects.filter(pk=deployment.site_id).first()
-            if site and site.client_id:
-                deployment.client_id = site.client_id
-                deployment.save(update_fields=['client'])
-        if deployment.guard_id:
-            site = Site.objects.filter(pk=deployment.site_id).first()
-            if site:
-                site.guards.add(deployment.guard_id)
+
+def ensure_deployment_columns(apps, schema_editor):
+    columns = table_columns(schema_editor, "deployments")
+    if "client_id" not in columns:
+        schema_editor.execute("ALTER TABLE deployments ADD COLUMN client_id bigint NULL")
+    if "guard_id" not in columns:
+        schema_editor.execute("ALTER TABLE deployments ADD COLUMN guard_id bigint NULL")
+
+
+def copy_deployment_data(apps, schema_editor):
+    through_table = "webroaster_site_guards"
+    through_columns = table_columns(schema_editor, through_table)
+    has_through_table = {"site_id", "employee_id"}.issubset(through_columns)
+
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE deployments
+            SET client_id = sites.client_id
+            FROM sites
+            WHERE deployments.site_id = sites.site_id
+              AND deployments.site_id IS NOT NULL
+              AND deployments.client_id IS NULL
+            """
+        )
+        if has_through_table:
+            cursor.execute(
+                f"""
+                INSERT INTO {through_table} (site_id, employee_id)
+                SELECT DISTINCT site_id, guard_id
+                FROM deployments
+                WHERE site_id IS NOT NULL AND guard_id IS NOT NULL
+                ON CONFLICT DO NOTHING
+                """
+            )
 
 
 def noop_reverse(apps, schema_editor):
@@ -30,6 +63,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.RunPython(ensure_deployment_columns, noop_reverse),
         migrations.SeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(

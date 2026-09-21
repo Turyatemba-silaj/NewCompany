@@ -6,6 +6,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "NewCompany.settings")
 try:
     from NewCompany.wsgi import application
 except Exception as exc:
+    startup_error = f"{exc.__class__.__name__}: {exc}"
     startup_traceback = traceback.format_exc()
 
     def application(environ, start_response):
@@ -15,7 +16,7 @@ except Exception as exc:
         )
         body = (
             "Django failed to start on Vercel.\n\n"
-            f"{exc.__class__.__name__}: {exc}\n\n"
+            f"{startup_error}\n\n"
             f"{details}"
         ).encode("utf-8")
         start_response(
