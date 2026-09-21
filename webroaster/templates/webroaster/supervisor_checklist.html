@@ -226,7 +226,7 @@
                         <td>{{ row.client|default:"-" }}</td>
                         <td>{{ row.shift_label }}</td>
                         <td>{{ row.employee_number }}</td>
-                        <td>{{ row.guard.first_name }} {{ row.guard.last_name }}</td>
+                        <td>{{ row.guard_name|default:row.guard }}</td>
                         <td>{{ row.phone_number|default:"-" }}</td>
                         <td></td>
                         <td class="signature-cell"></td>

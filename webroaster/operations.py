@@ -864,6 +864,7 @@ def build_supervisor_checklist_rows(deployment_area, shift_type, work_date):
     scheduled_guard_ids = set()
     rows = []
     shortage_rows = []
+    shortage_sequence = 1
     attendance_by_deployment = {}
     if deployments:
         attendance_records = (
@@ -944,6 +945,22 @@ def build_supervisor_checklist_rows(deployment_area, shift_type, work_date):
                     "shortage_count": shortage_count,
                 }
             )
+            for _index in range(shortage_count):
+                rows.append(
+                    {
+                        "deployment": deployment,
+                        "site": deployment.site,
+                        "client": deployment.client or deployment.site.client,
+                        "shift_type": shift_type,
+                        "shift_label": dict(Deployment.SHIFT_COVERAGE_CHOICES).get(shift_type, shift_type.title()),
+                        "guard": None,
+                        "guard_name": "Shortage Guard",
+                        "employee_number": f"zz{shortage_sequence:03d}",
+                        "phone_number": "-",
+                        "is_shortage": True,
+                    }
+                )
+                shortage_sequence += 1
 
     return rows, shortage_rows, deployments
 
@@ -977,7 +994,7 @@ def write_supervisor_checklist_csv(response, checklist_rows, shortage_rows, sele
             row["client"] or "-",
             row["shift_label"],
             row["employee_number"],
-            f"{row['guard'].first_name} {row['guard'].last_name}".strip(),
+            row.get("guard_name") or f"{row['guard'].first_name} {row['guard'].last_name}".strip(),
             row["phone_number"] or "-",
             "",
             "",

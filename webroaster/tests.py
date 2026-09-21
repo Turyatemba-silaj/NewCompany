@@ -20,7 +20,7 @@ from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
 from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementRequisition, PurchaseOrder, Region, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
-from .operations import build_monthly_roster_matrix, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
+from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
 
 def login_test_staff(client, username="staff"):
     user, _created = get_user_model().objects.get_or_create(username=username)
@@ -1014,6 +1014,37 @@ class SiteDeploymentAreaTests(TestCase):
         deployment = form.save()
         self.assertEqual(list(deployment.day_guards.order_by("pk")), [day_guard_one, day_guard_two])
         self.assertEqual(list(deployment.night_guards.all()), [night_guard])
+
+    def test_supervisor_checklist_creates_unique_shortage_rows_for_unassigned_site(self):
+        region = Region.objects.create(region_name="Checklist Shortage Region")
+        contract = self.make_contract()
+        site = Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Checklist Shortage Site",
+            site_address="Kampala",
+            day_shift_guards=3,
+            night_shift_guards=0,
+        )
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0, shift_type="day")
+        Deployment.objects.create(
+            client=contract.client,
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 12, 31),
+            status="active",
+        )
+
+        rows, shortage_rows, _deployments = build_supervisor_checklist_rows(region, "day", date(2026, 1, 2))
+
+        self.assertEqual(len(rows), 3)
+        self.assertEqual([row["employee_number"] for row in rows], ["zz001", "zz002", "zz003"])
+        self.assertTrue(all(row["is_shortage"] for row in rows))
+        self.assertEqual(rows[0]["guard_name"], "Shortage Guard")
+        self.assertEqual(shortage_rows[0]["shortage_count"], 3)
 
 
     def test_site_form_guard_choices_are_limited_to_selected_deployment_area(self):
