@@ -305,6 +305,10 @@ class Employee(models.Model):
 
     class Meta:
         db_table = 'employees'
+        indexes = [
+            models.Index(fields=["status", "role", "employee_number"], name="emp_status_role_num_idx"),
+            models.Index(fields=["department", "status"], name="emp_department_status_idx"),
+        ]
 
 
 def sync_employee_user_access(employee):

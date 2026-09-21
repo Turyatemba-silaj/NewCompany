@@ -93,7 +93,7 @@ class SiteForm(StyledModelForm):
     class Meta:
         model = Site
         fields = ["region", "client", "contract", "site_name", "site_address", "day_shift_guards", "night_shift_guards", "guards"]
-        widgets = {"guards": forms.CheckboxSelectMultiple}
+        widgets = {"guards": forms.SelectMultiple(attrs={"size": 10})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -113,7 +113,15 @@ class SiteForm(StyledModelForm):
 
     def guard_queryset_for_selected_region(self):
         region_id = self.selected_region_id()
-        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active")
+        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active").only(
+            "employee_id",
+            "employee_number",
+            "first_name",
+            "last_name",
+            "role",
+            "status",
+            "is_reliever",
+        )
         if not region_id:
             return base_queryset.none()
         today = timezone.localdate()
@@ -389,7 +397,7 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
     class Meta:
         model = Deployment
         fields = ["client", "site", "shift_type", "day_guards", "night_guards", "start_date", "end_date", "status"]
-        widgets = {"day_guards": forms.CheckboxSelectMultiple, "night_guards": forms.CheckboxSelectMultiple, "start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
+        widgets = {"day_guards": forms.SelectMultiple(attrs={"size": 10}), "night_guards": forms.SelectMultiple(attrs={"size": 10}), "start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -413,7 +421,15 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
 
     def guard_queryset_for_selected_site(self):
         site_id = self.selected_site_id()
-        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active")
+        base_queryset = Employee.objects.filter(role__in=("guard", "supervisor"), status="active").only(
+            "employee_id",
+            "employee_number",
+            "first_name",
+            "last_name",
+            "role",
+            "status",
+            "is_reliever",
+        )
         if not site_id:
             return base_queryset.none()
         site = Site.objects.filter(pk=site_id).select_related("region").first()

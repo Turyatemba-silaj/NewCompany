@@ -364,6 +364,11 @@ class Site(models.Model):
 
     class Meta:
         db_table = 'sites'
+        indexes = [
+            models.Index(fields=["region", "site_name"], name="site_region_name_idx"),
+            models.Index(fields=["contract", "site_name"], name="site_contract_name_idx"),
+            models.Index(fields=["client", "site_name"], name="site_client_name_idx"),
+        ]
 
 
 class Shift(models.Model):
@@ -785,6 +790,11 @@ class Deployment(models.Model):
 
     class Meta:
         db_table = 'deployments'
+        indexes = [
+            models.Index(fields=["site", "status", "start_date"], name="dep_site_status_start_idx"),
+            models.Index(fields=["site", "status", "end_date"], name="dep_site_status_end_idx"),
+            models.Index(fields=["shift_coverage", "status"], name="dep_coverage_status_idx"),
+        ]
 
 class DeploymentArea(models.Model):
     """Allocates a guard or supervisor to a deployment work area."""
@@ -852,6 +862,11 @@ class DeploymentArea(models.Model):
         db_table = 'deployment_areas'
         verbose_name = 'Deployment Area'
         verbose_name_plural = 'Deployment Areas'
+        indexes = [
+            models.Index(fields=["region", "status", "start_date"], name="deparea_region_status_idx"),
+            models.Index(fields=["employee", "status", "start_date"], name="deparea_employee_status_idx"),
+            models.Index(fields=["region", "end_date"], name="deparea_region_end_idx"),
+        ]
 
 
 
@@ -973,6 +988,12 @@ class Attendance(models.Model):
         return f"{self.employee} - {self.date}"
     class Meta:
         db_table = 'attendance'
+        indexes = [
+            models.Index(fields=["date", "site", "shift"], name="att_date_site_shift_idx"),
+            models.Index(fields=["employee", "date"], name="att_employee_date_idx"),
+            models.Index(fields=["scheduled_guard", "date"], name="att_scheduled_date_idx"),
+            models.Index(fields=["deployment", "date"], name="att_deployment_date_idx"),
+        ]
 
 def site_assignment_conflicts(guards, site=None):
     guard_ids = [guard.pk for guard in guards if guard.pk and not guard.is_reliever]

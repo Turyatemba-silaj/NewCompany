@@ -184,7 +184,7 @@ class InvoiceForm(DateRangeValidationMixin, StyledModelForm):
     class Meta:
         model = Invoice
         fields = ["contract", "sites", "billable_products", "invoice_date", "due_date", "billing_start_date", "billing_end_date", "amendment_amount", "amendment_reason", "tax_rate", "status"]
-        widgets = {"invoice_date": DATE_WIDGET, "due_date": DATE_WIDGET, "billing_start_date": DATE_WIDGET, "billing_end_date": DATE_WIDGET, "sites": forms.CheckboxSelectMultiple, "billable_products": forms.CheckboxSelectMultiple}
+        widgets = {"invoice_date": DATE_WIDGET, "due_date": DATE_WIDGET, "billing_start_date": DATE_WIDGET, "billing_end_date": DATE_WIDGET, "sites": forms.SelectMultiple(attrs={"size": 8}), "billable_products": forms.SelectMultiple(attrs={"size": 8})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

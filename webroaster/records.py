@@ -3,7 +3,7 @@ import io
 from datetime import datetime
 
 from django.contrib import messages
-from django.core.exceptions import ValidationError
+from django.core.exceptions import FieldDoesNotExist, ValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.forms import modelformset_factory
@@ -55,6 +55,27 @@ def asset_assignment_type_map():
         str(asset.pk): asset.asset_type
         for asset in Asset.objects.only("pk", "asset_type")
     }
+
+
+def optimized_model_queryset(config, fields=None):
+    model = config["model"]
+    queryset = model.objects.all()
+    select_fields = []
+    prefetch_fields = []
+    for field_name in fields or []:
+        try:
+            model_field = model._meta.get_field(field_name)
+        except FieldDoesNotExist:
+            continue
+        if model_field.is_relation and (model_field.many_to_one or model_field.one_to_one):
+            select_fields.append(field_name)
+        elif model_field.many_to_many:
+            prefetch_fields.append(field_name)
+    if select_fields:
+        queryset = queryset.select_related(*select_fields)
+    if prefetch_fields:
+        queryset = queryset.prefetch_related(*prefetch_fields)
+    return queryset
 
 
 def incident_guard_choices_by_site():
@@ -291,7 +312,7 @@ def model_list(request, model_name):
     if model_name == "paymees":
         sync_receivables_from_payments()
 
-    objects = config["model"].objects.all().order_by(config["model"]._meta.pk.name)
+    objects = optimized_model_queryset(config, config.get("fields", [])).order_by(config["model"]._meta.pk.name)
     if model_name == "salaries":
         objects = payroll_salary_queryset().order_by("employee__employee_number", "salary_id")
     if model_name == "assets":
@@ -325,7 +346,7 @@ def model_export(request, model_name):
     writer = csv.writer(response)
     writer.writerow(fields)
     ordering = config.get("ordering") or [model._meta.pk.name]
-    objects = model.objects.all().order_by(*ordering)
+    objects = optimized_model_queryset(config, fields).order_by(*ordering)
     if model_name == "assets":
         objects = asset_stock_groups(objects.prefetch_related("assignments"))
     for obj in objects:
@@ -392,8 +413,8 @@ def model_detail(request, model_name, pk):
     if model_name == "paymees":
         sync_receivables_from_payments()
 
-    obj = get_object_or_404(config["model"], pk=pk)
     fields = config.get("detail_fields", [field.name for field in config["model"]._meta.fields])
+    obj = get_object_or_404(optimized_model_queryset(config, fields), pk=pk)
     context = {
         "model_name": model_name,
         "title": config["title"],
