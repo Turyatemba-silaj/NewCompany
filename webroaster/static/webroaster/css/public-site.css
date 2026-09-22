@@ -457,6 +457,16 @@ p {
     font-size: 26px;
 }
 
+.stat-grid .card h3 {
+    font-size: 20px;
+}
+
+.stat-grid .card h3 span {
+    color: var(--blue);
+    font-size: 24px;
+    font-weight: 900;
+}
+
 .notice-strip {
     background: #fff8e6;
     border-bottom: 1px solid #f5d28b;

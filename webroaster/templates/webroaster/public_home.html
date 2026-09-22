@@ -13,68 +13,30 @@
 </section>
 {% endif %}
 
-<section class="home-slider" data-slider data-slide-interval="9000">
-    <article class="slide active">
-        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
-        <div class="slide-content">
+<section class="hero">
+    <div class="hero-inner">
+        <div>
             <p class="eyebrow">Security services</p>
-            <h1>NewCompany</h1>
-            <p class="lead">Disciplined guarding, patrol supervision, and incident response for businesses that need visible protection and accountable records.</p>
+            <h1>Professional guarding and security operations for every site.</h1>
+            <p class="lead">Disciplined guarding, patrol supervision, incident response, and accountable records for businesses that need visible protection.</p>
             <div class="hero-actions">
-                <a class="btn primary" href="{% url 'webroaster:what_we_do' %}">View Services</a>
-                <a class="btn light" href="{% url 'webroaster:careers' %}">Apply for Jobs</a>
-            </div>
-            <div class="stat-grid compact">
-                <div class="stat"><b data-count-up="{{ stats.guards|default:0 }}">0</b><span>Active guards</span></div>
-                <div class="stat"><b data-count-up="{{ stats.sites|default:0 }}">0</b><span>Client sites</span></div>
-                <div class="stat"><b data-count-up="{{ stats.clients|default:0 }}">0</b><span>Clients</span></div>
-                <div class="stat"><b data-count-up="{{ stats.regions|default:0 }}">0</b><span>Regions</span></div>
+                <a class="btn primary" href="#services">View Services</a>
+                <a class="btn" href="{% url 'webroaster:careers' %}">Apply Online</a>
             </div>
         </div>
-    </article>
-    <article class="slide">
-        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Security response team prepared for site operations">
-        <div class="slide-content">
-            <p class="eyebrow">Service advert</p>
-            <h1>Manned guarding for offices, estates, schools, and industrial sites.</h1>
-            <p class="lead">Deploy trained officers with supervisor follow-up, attendance control, and incident records clients can trust.</p>
-            <div class="hero-actions">
-                <a class="btn primary" href="#services">Explore Services</a>
-                <a class="btn light" href="{% url 'webroaster:where_we_work' %}">Coverage Areas</a>
-            </div>
+        <div class="hero-visual">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
+            <div class="visual-caption"><span>Site protection</span><span>Accountable teams</span></div>
         </div>
-    </article>
-    <article class="slide">
-        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Security control and reporting operation">
-        <div class="slide-content">
-            <p class="eyebrow">Recruitment</p>
-            <h1>Join a professional security team with online applications.</h1>
-            <p class="lead">Apply for open guard, supervisor, operations, and administrative positions through the public careers portal.</p>
-            <div class="hero-actions">
-                <a class="btn primary" href="{% url 'webroaster:careers' %}">Open Careers</a>
-                {% for job in open_jobs|slice:":1" %}
-                    <a class="btn light" href="{% url 'webroaster:job_detail' job.pk %}">Apply: {{ job.title }}</a>
-                {% endfor %}
-            </div>
-        </div>
-    </article>
-    {% for advert in adverts|slice:":2" %}
-        <article class="slide">
-            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="{{ advert.title }}">
-            <div class="slide-content">
-                <p class="eyebrow">Company advert</p>
-                <h1>{{ advert.title }}</h1>
-                {% if advert.message %}<p class="lead">{{ advert.message }}</p>{% endif %}
-                {% if advert.target_url %}<div class="hero-actions"><a class="btn primary" href="{{ advert.target_url }}">{{ advert.call_to_action|default:"Learn More" }}</a></div>{% endif %}
-            </div>
-        </article>
-    {% endfor %}
-    <div class="slider-controls">
-        <div class="slide-arrows">
-            <button class="slide-arrow" type="button" data-slide-prev aria-label="Previous slide">&#8249;</button>
-            <button class="slide-arrow" type="button" data-slide-next aria-label="Next slide">&#8250;</button>
-        </div>
-        <div class="slide-dots" data-slide-dots></div>
+    </div>
+</section>
+
+<section class="section">
+    <div class="stat-grid">
+        <div class="card"><p class="eyebrow">Coverage</p><h3><span data-count-up="{{ stats.regions|default:0 }}">0</span> regions</h3><p class="muted">Structured deployment coverage for client operations.</p></div>
+        <div class="card"><p class="eyebrow">Sites</p><h3><span data-count-up="{{ stats.sites|default:0 }}">0</span> client sites</h3><p class="muted">Daily site accountability and supervisor follow-up.</p></div>
+        <div class="card"><p class="eyebrow">Personnel</p><h3><span data-count-up="{{ stats.guards|default:0 }}">0</span> guards</h3><p class="muted">Active guards and supervisors managed through one system.</p></div>
+        <div class="card"><p class="eyebrow">Careers</p><h3>Online applications</h3><p class="muted">Candidates can apply through the public recruitment page.</p></div>
     </div>
 </section>
 
