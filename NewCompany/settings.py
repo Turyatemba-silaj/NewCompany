@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -44,15 +45,31 @@ def first_env_value(*names):
     return None
 
 
+PLACEHOLDER_DATABASE_HOSTS = {"host", "hostname", "example.com", "localhost.localdomain"}
+
+
+def clean_database_url(value):
+    value = value.strip().strip("'\"")
+    match = re.search(r"(?:postgres|postgresql)://[^\s'\"]+", value)
+    if match:
+        value = match.group(0)
+    return value
+
+
+def is_usable_database_url(value):
+    parsed = urlparse(value)
+    return parsed.scheme in {"postgres", "postgresql"} and parsed.hostname not in PLACEHOLDER_DATABASE_HOSTS
+
+
 def first_database_url(*names):
     for name in names:
         value = os.environ.get(name)
         if not value:
             continue
-        value = value.strip().strip("'\"")
+        value = clean_database_url(value)
         if "://" not in value and os.environ.get(value):
-            value = os.environ[value].strip().strip("'\"")
-        if value:
+            value = clean_database_url(os.environ[value])
+        if value and is_usable_database_url(value):
             return value
     return None
 
