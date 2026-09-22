@@ -1218,7 +1218,7 @@ def asset_assignment_report(request):
             )
 
     context = {
-        "title": "Asset Accountability Report",
+        "title": "Asset Assignment Report",
         "report_rows": report_rows,
     }
     return render_page(request, "webroaster/asset_assignment_report.html", context, "asset-assignments")

@@ -2090,8 +2090,6 @@ class PublicWebsiteTests(TestCase):
             "/asset-assignments/",
             "/asset-assignments/add/",
             "/asset-assignments/report/",
-            "/asset-accountability/",
-            "/asset-accountability/add/",
         ]
 
         for path in paths:
