@@ -1,6 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+  "buildCommand": "python manage.py migrate --noinput && python manage.py collectstatic --noinput",
   "builds": [
     {
       "src": "api/index.py",
