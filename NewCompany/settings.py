@@ -53,6 +53,22 @@ def database_url_requires_ssl(database_url):
     return True
 
 
+def fallback_database_config():
+    if DEBUG:
+        return {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
+            "USER": os.environ.get("POSTGRES_USER", "postgres"),
+            "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
+            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
+        }
+    return {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": os.environ.get("SQLITE_FALLBACK_PATH", "/tmp/newcompany-config-error.sqlite3"),
+    }
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
@@ -135,26 +151,25 @@ DATABASE_URL = first_env_value(
 
 if DATABASE_URL:
     # Hosted production PostgreSQL
-    DATABASES = {
-        "default": dj_database_url.parse(
-            DATABASE_URL,
-            conn_max_age=0,
-            conn_health_checks=True,
-            ssl_require=database_url_requires_ssl(DATABASE_URL),
+    try:
+        DATABASES = {
+            "default": dj_database_url.parse(
+                DATABASE_URL,
+                conn_max_age=0,
+                conn_health_checks=True,
+                ssl_require=database_url_requires_ssl(DATABASE_URL),
+            )
+        }
+    except Exception as exc:
+        DATABASES = {"default": fallback_database_config()}
+        VERCEL_CONFIGURATION_ERRORS.append(
+            "DATABASE_URL is not a valid PostgreSQL URL. Use a full postgres:// or postgresql:// URL and URL-encode special characters in the password."
         )
-    }
+        if env_bool("DJANGO_STARTUP_DEBUG", False):
+            VERCEL_CONFIGURATION_ERRORS.append(f"DATABASE_URL parse error: {exc}")
 else:
     # Local development PostgreSQL
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
-            "USER": os.environ.get("POSTGRES_USER", "postgres"),
-            "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
-            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        }
-    }
+    DATABASES = {"default": fallback_database_config()}
     if not DEBUG:
         VERCEL_CONFIGURATION_ERRORS.append(
             "Set DATABASE_URL to a hosted PostgreSQL database, or provide a supported Postgres URL env var."
