@@ -12,7 +12,7 @@ from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import require_model_access
+from .access import employee_for_user, require_model_access
 from .finance import (
     create_split_site_invoices,
     invoice_item_formset_has_rows,
@@ -88,6 +88,27 @@ def show_save_warnings(request, objects):
     for obj in objects:
         for warning in getattr(obj, "save_warnings", []):
             messages.warning(request, warning)
+
+
+def procurement_request_post_data(request):
+    if request.method != "POST":
+        return None
+    data = request.POST.copy()
+    requester = employee_for_user(request.user)
+    total_forms = int(data.get("records-TOTAL_FORMS") or 0)
+    for index in range(total_forms):
+        prefix = f"records-{index}"
+        row_has_data = any(
+            (data.get(f"{prefix}-{field_name}") or "").strip()
+            for field_name in ("title", "description", "required_date", "estimated_amount", "justification")
+        )
+        if not row_has_data:
+            continue
+        if requester and not data.get(f"{prefix}-requested_by"):
+            data[f"{prefix}-requested_by"] = str(requester.pk)
+        if not data.get(f"{prefix}-status"):
+            data[f"{prefix}-status"] = "submitted"
+    return data
 
 
 def incident_guard_choices_by_site():
@@ -671,8 +692,9 @@ def model_create(request, model_name):
                     "decision": "approved",
                     "approved_amount": selected_approval_requisition.estimated_amount,
                 }]
+    formset_post_data = procurement_request_post_data(request) if model_name == "procurement-requisitions" else request.POST or None
     entry_formset = CreateFormSet(
-        request.POST or None,
+        formset_post_data,
         request.FILES or None,
         queryset=config["model"].objects.none(),
         prefix="records",

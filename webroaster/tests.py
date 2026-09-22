@@ -2963,6 +2963,72 @@ class ProcurementApprovalPrefillTests(TestCase):
         self.assertContains(approval_response, f'value="{requisition.pk}" selected')
 
 
+class ProcurementRequestSaveTests(TestCase):
+    def test_request_submission_auto_fills_requester_and_saves(self):
+        requester = Employee.objects.create(
+            first_name="Request",
+            last_name="Submitter",
+            date_of_birth=date(1990, 1, 1),
+            gender="F",
+            phone_number="0788555111",
+            email="request-submitter@example.com",
+            address="Kampala",
+            national_id="NIN-REQUEST-SUBMITTER",
+            hire_date=date(2024, 1, 1),
+            role="finance_officer",
+            department="finance",
+            status="active",
+        )
+        approver = Employee.objects.create(
+            first_name="Request",
+            last_name="Approver",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0788555222",
+            email="request-approver@example.com",
+            address="Kampala",
+            national_id="NIN-REQUEST-APPROVER",
+            hire_date=date(2024, 1, 1),
+            role="finance_officer",
+            department="finance",
+            status="active",
+        )
+        supplier = Supplier.objects.create(supplier_name="Request Save Supplier", phone_number="0700555111")
+        user = login_test_staff(self.client, "request-submitter")
+        user.email = requester.email
+        user.save(update_fields=["email"])
+
+        response = self.client.post("/procurement-requisitions/add/", {
+            "records-TOTAL_FORMS": "1",
+            "records-INITIAL_FORMS": "0",
+            "records-MIN_NUM_FORMS": "0",
+            "records-MAX_NUM_FORMS": "1000",
+            "records-0-budget": "",
+            "records-0-title": "Save patrol radios",
+            "records-0-category": "equipment",
+            "records-0-description": "Procure radios for patrol supervisors.",
+            "records-0-approval_assigned_to": str(approver.pk),
+            "records-0-viewer": "",
+            "records-0-preferred_supplier": str(supplier.pk),
+            "records-0-department": "operations",
+            "records-0-required_date": "2026-10-15",
+            "records-0-estimated_amount": "450000.00",
+            "records-0-justification": "Improve patrol response.",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        requisition = ProcurementRequisition.objects.get(title="Save patrol radios")
+        self.assertEqual(requisition.requested_by, requester)
+        self.assertEqual(requisition.status, "submitted")
+        self.assertTrue(
+            ProcurementNotification.objects.filter(
+                recipient=approver,
+                notification_type="requisition_submitted",
+                related_object_id=requisition.pk,
+            ).exists()
+        )
+
+
 class ProcurementNotificationAutomationTests(TestCase):
     def setUp(self):
         self.approver = Employee.objects.create(
