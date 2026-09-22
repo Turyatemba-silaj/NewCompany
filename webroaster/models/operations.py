@@ -964,24 +964,39 @@ class Attendance(models.Model):
     def clean(self):
         super().clean()
         site = self.site or (self.deployment.site if self.deployment_id else None)
+        shift_type = self.shift.shift_type if self.shift_id else None
         if self.present and self.attended_guard_id and not self.employee_has_deployment_area(self.attended_guard, site, self.date):
             raise ValidationError("This employee cannot work or earn this shift outside their deployment area unless transferred by Human Resource Manager.")
         if self.scheduled_guard_id and self.date:
             duplicate_schedule = Attendance.objects.filter(
                 scheduled_guard=self.scheduled_guard,
                 date=self.date,
-                shift__shift_type=self.shift.shift_type if self.shift_id else None,
+                shift__shift_type=shift_type,
             )
             if self.pk:
                 duplicate_schedule = duplicate_schedule.exclude(pk=self.pk)
             if duplicate_schedule.exists():
                 raise ValidationError("This guard is already scheduled on this date. Choose a different guard for the other shift.")
-        if self.present and self.attended_guard_id and self.shift_id and self.date:
+        if self.present and self.attended_guard_id and shift_type and self.date:
+            if site:
+                required_guards = site.day_shift_guards if shift_type == "day" else site.night_shift_guards
+                present_attendance = Attendance.objects.filter(
+                    site=site,
+                    present=True,
+                    date=self.date,
+                    shift__shift_type=shift_type,
+                )
+                if self.pk:
+                    present_attendance = present_attendance.exclude(pk=self.pk)
+                if required_guards <= 0 or present_attendance.count() >= required_guards:
+                    raise ValidationError(
+                        f"{site} cannot mark more than {required_guards} present guard(s) for the {shift_type} shift on {self.date}."
+                    )
             duplicate_shift = Attendance.objects.filter(
                 attended_guard=self.attended_guard,
                 present=True,
                 date=self.date,
-                shift__shift_type=self.shift.shift_type,
+                shift__shift_type=shift_type,
             )
             if self.pk:
                 duplicate_shift = duplicate_shift.exclude(pk=self.pk)

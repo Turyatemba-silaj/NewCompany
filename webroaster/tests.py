@@ -272,6 +272,134 @@ class AttendanceRosterTests(TestCase):
         )
 
         self.assertEqual(Attendance.objects.count(), 1)
+
+    def test_attendance_cannot_exceed_required_guards_per_shift(self):
+        region = Region.objects.create(region_name="Attendance Capacity Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Attendance Capacity Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        guards = []
+        for index in range(2):
+            guard = Employee.objects.create(
+                first_name=f"Capacity{index}",
+                last_name="Guard",
+                date_of_birth=date(1990, 1, 1),
+                gender="M",
+                phone_number=f"073333333{index}",
+                email=f"capacity{index}@example.com",
+                address="Kampala",
+                national_id=f"NIN-CAPACITY-{index}",
+                hire_date=date(2022, 1, 1),
+                role="guard",
+                status="active",
+            )
+            site.guards.add(guard)
+            guards.append(guard)
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+        Attendance.objects.create(
+            deployment=deployment,
+            site=site,
+            shift=shift,
+            scheduled_guard=guards[0],
+            attended_guard=guards[0],
+            employee=guards[0],
+            present=True,
+            date=date(2026, 7, 28),
+            time_in=shift.start_time,
+            time_out=shift.end_time,
+        )
+
+        with self.assertRaisesMessage(ValidationError, "cannot mark more than 1 present guard"):
+            Attendance.objects.create(
+                deployment=deployment,
+                site=site,
+                shift=shift,
+                scheduled_guard=guards[1],
+                attended_guard=guards[1],
+                employee=guards[1],
+                present=True,
+                date=date(2026, 7, 28),
+                time_in=shift.start_time,
+                time_out=shift.end_time,
+            )
+
+        self.assertEqual(Attendance.objects.filter(site=site, date=date(2026, 7, 28), present=True).count(), 1)
+
+    def test_roster_post_does_not_save_more_present_guards_than_required(self):
+        region = Region.objects.create(region_name="Attendance Roster Capacity Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Attendance Roster Capacity Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        guards = []
+        for index in range(2):
+            guard = Employee.objects.create(
+                first_name=f"RosterCapacity{index}",
+                last_name="Guard",
+                date_of_birth=date(1990, 1, 1),
+                gender="M",
+                phone_number=f"074444444{index}",
+                email=f"rostercapacity{index}@example.com",
+                address="Kampala",
+                national_id=f"NIN-ROSTER-CAPACITY-{index}",
+                hire_date=date(2022, 1, 1),
+                role="guard",
+                status="active",
+            )
+            site.guards.add(guard)
+            guards.append(guard)
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+        row_keys = [f"{deployment.pk}_day_{guard.pk}" for guard in guards]
+
+        login_test_staff(self.client, "attendance-capacity")
+        response = self.client.post(
+            "/attendance/",
+            data={
+                "site": site.pk,
+                "mark_date": "2026-07-28",
+                "row_key": row_keys,
+                f"deployment_id_{row_keys[0]}": deployment.pk,
+                f"scheduled_guard_id_{row_keys[0]}": guards[0].pk,
+                f"shift_type_{row_keys[0]}": "day",
+                f"present_{row_keys[0]}": "on",
+                f"attended_guard_{row_keys[0]}": guards[0].pk,
+                f"reason_{row_keys[0]}": "",
+                f"deployment_id_{row_keys[1]}": deployment.pk,
+                f"scheduled_guard_id_{row_keys[1]}": guards[1].pk,
+                f"shift_type_{row_keys[1]}": "day",
+                f"present_{row_keys[1]}": "on",
+                f"attended_guard_{row_keys[1]}": guards[1].pk,
+                f"reason_{row_keys[1]}": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(Attendance.objects.filter(site=site, date=date(2026, 7, 28), present=True).count(), 1)
+        credited_salaries = [salary for salary in Salary.objects.filter(employee__in=guards) if salary.shifts_worked == 1]
+        self.assertEqual(len(credited_salaries), 1)
 class InvoiceContractSyncTests(TestCase):
     def test_invoice_picks_contract_information(self):
         client = Client.objects.create(

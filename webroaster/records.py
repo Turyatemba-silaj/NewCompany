@@ -1,5 +1,6 @@
 ﻿import csv
 import io
+from collections import defaultdict
 from datetime import datetime
 
 from django.contrib import messages
@@ -157,6 +158,7 @@ def model_list(request, model_name):
         if request.method == "POST" and selected_site and mark_day:
             row_keys = request.POST.getlist("row_key")
             saved_count = 0
+            present_counts = defaultdict(int)
             site_guard_ids = {employee.pk for employee in site_roster_staff(selected_site, mark_day)}
             guard_choices = Employee.objects.filter(pk__in=site_guard_ids).order_by("first_name", "last_name")
             for row_key in row_keys:
@@ -184,6 +186,28 @@ def model_list(request, model_name):
                 if present and attended_guard is None:
                     attended_guard = scheduled_guard
                 employee = attended_guard or scheduled_guard
+                current_attendance = Attendance.objects.filter(
+                    deployment=deployment,
+                    date=mark_day,
+                    shift=shift,
+                    scheduled_guard=scheduled_guard,
+                ).first()
+                if present:
+                    required_guards = selected_site.day_shift_guards if shift_type == "day" else selected_site.night_shift_guards
+                    present_attendance = Attendance.objects.filter(
+                        site=selected_site,
+                        date=mark_day,
+                        present=True,
+                        shift__shift_type=shift_type,
+                    )
+                    if current_attendance:
+                        present_attendance = present_attendance.exclude(pk=current_attendance.pk)
+                    if required_guards <= 0 or present_attendance.count() + present_counts[shift_type] >= required_guards:
+                        messages.error(
+                            request,
+                            f"{selected_site} cannot mark more than {required_guards} present guard(s) for the {shift_type} shift on {mark_day}.",
+                        )
+                        continue
 
                 try:
                     Attendance.objects.update_or_create(
@@ -205,6 +229,8 @@ def model_list(request, model_name):
                 except ValidationError as exc:
                     messages.error(request, "; ".join(exc.messages))
                     continue
+                if present and not (current_attendance and current_attendance.present):
+                    present_counts[shift_type] += 1
                 saved_count += 1
             sync_salary_table()
             if saved_count:
