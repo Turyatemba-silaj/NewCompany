@@ -65,6 +65,7 @@ urlpatterns = [
     path("api/sites/<int:pk>/deployment-area-guards/", staff_required(operations.site_deployment_area_guards_api), name="site_deployment_area_guards_api"),
     path("api/deployment-areas/<int:pk>/employee-guards/", staff_required(operations.deployment_area_employee_guards_api), name="deployment_area_employee_guards_api"),
     path("incidents/<int:pk>/notify/", staff_required(operations.incident_notify), name="incident_notify"),
+    path("procurement/notifications/<int:notification_id>/<str:action>/", staff_required(finance.procurement_notification_action), name="procurement_notification_action"),
     path("procurement-requisitions/<int:pk>/contact-supplier/", staff_required(finance.procurement_contact_supplier), name="procurement_contact_supplier"),
     path("asset-assignments/report/", staff_required(operations.asset_assignment_report), name="asset_assignment_report"),
     path("assets/report/", staff_required(operations.asset_store_report), name="asset_store_report"),

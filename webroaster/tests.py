@@ -18,7 +18,7 @@ from .views import get_config
 from .forms_hr import DisciplinaryActionForm, PerformanceEvaluationForm
 from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
-from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementRequisition, PurchaseOrder, Region, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
+from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
 from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
 
@@ -2962,6 +2962,93 @@ class ProcurementApprovalPrefillTests(TestCase):
         self.assertContains(approval_response, "300,000.00")
         self.assertContains(approval_response, f'value="{requisition.pk}" selected')
 
+
+class ProcurementNotificationAutomationTests(TestCase):
+    def setUp(self):
+        self.approver = Employee.objects.create(
+            first_name="Auto",
+            last_name="Approver",
+            date_of_birth=date(1990, 1, 1),
+            gender="F",
+            phone_number="0788999001",
+            email="auto-procurement@example.com",
+            address="Kampala",
+            national_id="NIN-AUTO-PROCUREMENT",
+            hire_date=date(2024, 1, 1),
+            role="finance_officer",
+            department="finance",
+            status="active",
+        )
+        self.supplier = Supplier.objects.create(
+            supplier_name="Automated Workflow Supplier",
+            phone_number="0700999001",
+            bank_name="Test Bank",
+            bank_account_name="Automated Workflow Supplier",
+            bank_account_number="123456789",
+        )
+        self.requisition = ProcurementRequisition.objects.create(
+            title="Automated procurement package",
+            category="admin",
+            description="Procurement request to test full notification automation.",
+            requested_by=self.approver,
+            approval_assigned_to=self.approver,
+            viewer=self.approver,
+            preferred_supplier=self.supplier,
+            department="admin",
+            required_date=timezone.localdate() + timedelta(days=14),
+            estimated_amount=Decimal("250000.00"),
+            status="submitted",
+        )
+        self.user = login_test_staff(self.client, "auto-procurement")
+        self.user.email = self.approver.email
+        self.user.save(update_fields=["email"])
+
+    def post_notification_action(self, notification_type, action):
+        notification = ProcurementNotification.objects.get(
+            recipient=self.approver,
+            notification_type=notification_type,
+            related_model="procurementrequisition",
+            related_object_id=self.requisition.pk,
+        )
+        response = self.client.post(reverse("webroaster:procurement_notification_action", args=[notification.pk, action]))
+        self.assertEqual(response.status_code, 302)
+        notification.refresh_from_db()
+        self.assertEqual(notification.status, "read")
+
+    def test_notification_buttons_advance_procurement_to_supplier_payment(self):
+        dashboard_response = self.client.get("/procurement/")
+        self.assertContains(dashboard_response, "Workflow Notifications")
+        self.assertContains(dashboard_response, "Approve")
+
+        self.post_notification_action("requisition_submitted", "approve_request")
+        self.requisition.refresh_from_db()
+        self.assertEqual(self.requisition.status, "supplier_contacted")
+        self.assertEqual(self.requisition.approved_amount, Decimal("250000.00"))
+
+        self.post_notification_action("supplier_contacted", "create_lpo")
+        purchase_order = PurchaseOrder.objects.get(requisition=self.requisition)
+        self.assertEqual(purchase_order.status, "issued")
+        self.assertEqual(purchase_order.total_amount, Decimal("250000.00"))
+        self.assertEqual(SupplierProformaInvoice.objects.get(requisition=self.requisition).status, "accepted")
+
+        self.post_notification_action("lpo_generated", "receive_goods")
+        grn = GoodsReceivedNote.objects.get(purchase_order=purchase_order)
+        self.assertEqual(grn.status, "accepted")
+
+        self.post_notification_action("goods_received", "approve_invoice")
+        invoice = SupplierInvoice.objects.get(purchase_order=purchase_order)
+        self.assertEqual(invoice.status, "approved")
+        payment = invoice.payments.get()
+        self.assertEqual(payment.amount, Decimal("250000.00"))
+        self.assertEqual(payment.approval_status, "pending")
+
+        self.post_notification_action("payment_initiated", "pay_supplier")
+        payment.refresh_from_db()
+        invoice.refresh_from_db()
+        self.assertEqual(payment.approval_status, "approved")
+        self.assertEqual(payment.payment_status, "paid")
+        self.assertEqual(invoice.status, "paid")
+        self.assertEqual(invoice.amount_paid, Decimal("250000.00"))
 
 
 

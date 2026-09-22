@@ -98,6 +98,7 @@ ROLE_GROUPS = {
             "procurement_api_index",
             "procurement_api_list",
             "procurement_contact_supplier",
+            "procurement_notification_action",
         },
     },
 }

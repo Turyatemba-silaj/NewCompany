@@ -6,9 +6,6 @@
 {% block content %}
 <style>
     .procurement-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
-
-
-
     .procurement-workspace {
         display: grid;
         grid-template-columns: minmax(0, 1.35fr) minmax(320px, .65fr);
@@ -30,8 +27,12 @@
     .register-tile strong { display: block; font-size: 20px; color: #111827; }
     .register-tile span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
     .register-tile a { display: inline-block; margin-top: 6px; }
+    .notification-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+    .workflow-note { max-width: 420px; }
     @media (max-width: 1120px) {
-    
+        .procurement-workspace { grid-template-columns: 1fr; }
+        .procurement-actions { justify-content: flex-start; }
+    }
 </style>
 
 <div class="topbar">
@@ -61,7 +62,7 @@
                             <td>{{ req.requisition_number }} - {{ req.title }}</td>
                             <td>{{ req.requested_by|default:"-" }}</td>
                             <td>{{ req.estimated_amount|thousands }}</td>
-                            <td><a class="btn primary" href="{% url 'webroaster:create' 'procurement-approvals' %}?requisition={{ req.pk }}">Approve</a></td>
+                            <td><a class="btn primary" href="{% url 'webroaster:create' 'procurement-approvals' %}?requisition={{ req.pk }}">Manual Approval</a></td>
                         </tr>
                     {% empty %}
                         <tr><td colspan="4">No requests waiting for approval.</td></tr>
@@ -124,6 +125,40 @@
                         <a href="{% url 'webroaster:list' card.model_name %}">Open</a>
                     </div>
                 {% endfor %}
+            </div>
+        </article>
+
+        <article class="visual-panel">
+            <div class="section-heading-row"><div><h2>Workflow Notifications</h2></div></div>
+            <div class="table-scroll">
+                <table>
+                    <thead><tr><th>Stage</th><th>Message</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    {% for notification in notifications %}
+                        <tr>
+                            <td>{{ notification.get_notification_type_display }}</td>
+                            <td class="workflow-note">{{ notification.message }}</td>
+                            <td><span class="status-pill {% if notification.status == 'read' %}success{% else %}pending{% endif %}">{{ notification.get_status_display }}</span></td>
+                            <td>
+                                {% if notification.action_choices %}
+                                    <div class="notification-actions">
+                                        {% for action_name, action_label in notification.action_choices %}
+                                            <form method="post" action="{% url 'webroaster:procurement_notification_action' notification.pk action_name %}">
+                                                {% csrf_token %}
+                                                <button class="btn primary" type="submit">{{ action_label }}</button>
+                                            </form>
+                                        {% endfor %}
+                                    </div>
+                                {% else %}
+                                    -
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="4">No procurement notifications yet.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </article>
     </div>

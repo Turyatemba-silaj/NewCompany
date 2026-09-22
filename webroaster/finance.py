@@ -12,17 +12,19 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import require_model_access, require_view_access
+from .access import employee_for_user, notification_actor_for_user, require_model_access, require_view_access
 from .models import (
     Advance,
     Budget,
     Employee,
     Expense,
+    GoodsReceivedNote,
     Invoice,
     InvoiceBillableItemPrice,
     Paymee,
     Payment,
     PayrollDeduction,
+    ProcurementApproval,
     ProcurementNotification,
     ProcurementRequisition,
     PurchaseOrder,
@@ -30,6 +32,7 @@ from .models import (
     Salary,
     SupplierInvoice,
     SupplierPayment,
+    SupplierProformaInvoice,
     SupplierProformaInvoiceItem,
     SupplierProformaItemPrice,
 )
@@ -809,6 +812,253 @@ def payout_api_batch(request, batch_type):
         "results": page_records,
     })
 
+PROCUREMENT_NOTIFICATION_ACTIONS = {
+    "requisition_submitted": [("approve_request", "Approve"), ("reject_request", "Reject")],
+    "requisition_approved": [("contact_supplier", "Contact Supplier")],
+    "supplier_contacted": [("create_lpo", "Generate LPO")],
+    "lpo_generated": [("receive_goods", "Receive Goods")],
+    "goods_received": [("approve_invoice", "Approve Invoice")],
+    "payment_initiated": [("pay_supplier", "Pay Supplier")],
+}
+
+
+def procurement_due_date(payment_terms):
+    days_by_term = {"on_delivery": 0, "net_7": 7, "net_15": 15, "net_30": 30}
+    return timezone.localdate() + timezone.timedelta(days=days_by_term.get(payment_terms, 15))
+
+
+def procurement_requisition_from_notification(notification):
+    if notification.related_model != "procurementrequisition" or not notification.related_object_id:
+        raise ValidationError("This notification is not linked to a procurement requisition.")
+    return get_object_or_404(
+        ProcurementRequisition.objects.select_related("requested_by", "approval_assigned_to", "viewer", "preferred_supplier"),
+        pk=notification.related_object_id,
+    )
+
+
+def procurement_primary_purchase_order(requisition):
+    return requisition.purchase_orders.select_related("supplier").order_by("-purchase_order_id").first()
+
+
+def procurement_primary_grn(purchase_order):
+    return purchase_order.goods_received_notes.filter(status__in=("accepted", "partially_accepted")).order_by("-grn_id").first()
+
+
+def procurement_primary_supplier_invoice(purchase_order):
+    return purchase_order.supplier_invoices.select_related("supplier").order_by("-supplier_invoice_id").first()
+
+
+def procurement_action_choices(notification):
+    if notification.status == "read":
+        return []
+    return PROCUREMENT_NOTIFICATION_ACTIONS.get(notification.notification_type, [])
+
+
+def attach_procurement_action_choices(notifications):
+    for notification in notifications:
+        notification.action_choices = procurement_action_choices(notification)
+    return notifications
+
+
+def approve_procurement_request(requisition, actor):
+    approval, created = ProcurementApproval.objects.get_or_create(
+        requisition=requisition,
+        decision="approved",
+        defaults={
+            "approved_by": actor,
+            "approved_amount": requisition.estimated_amount,
+            "comments": "Approved from procurement notification action.",
+        },
+    )
+    if not created and approval.decision != "approved":
+        approval.decision = "approved"
+        approval.approved_by = actor
+        approval.approved_amount = approval.approved_amount or requisition.estimated_amount
+        approval.comments = approval.comments or "Approved from procurement notification action."
+        approval.save()
+    if requisition.can_contact_supplier:
+        requisition.mark_supplier_contacted()
+    return "Procurement request approved and supplier notification advanced."
+
+
+def reject_procurement_request(requisition, actor):
+    ProcurementApproval.objects.create(
+        requisition=requisition,
+        approved_by=actor,
+        decision="rejected",
+        approved_amount=Decimal("0.00"),
+        comments="Rejected from procurement notification action.",
+    )
+    return "Procurement request rejected."
+
+
+def contact_procurement_supplier(requisition, actor):
+    if requisition.can_contact_supplier:
+        requisition.mark_supplier_contacted()
+        return "Supplier contacted and next procurement action created."
+    if requisition.status == "supplier_contacted":
+        return "Supplier had already been contacted."
+    raise ValidationError("This requisition is not ready for supplier contact.")
+
+
+def create_automated_lpo(requisition, actor):
+    existing_purchase_order = procurement_primary_purchase_order(requisition)
+    if existing_purchase_order:
+        return "LPO already exists for this requisition."
+    if not requisition.preferred_supplier_id:
+        raise ValidationError("Choose a preferred supplier before generating an LPO.")
+    amount = requisition.approved_amount or requisition.estimated_amount
+    if amount <= 0:
+        raise ValidationError("Approved amount must be greater than zero before generating an LPO.")
+    if requisition.status == "approved":
+        requisition.mark_supplier_contacted()
+    if requisition.status not in ("supplier_contacted", "proforma_received", "converted"):
+        raise ValidationError("Supplier must be contacted before generating an LPO.")
+
+    item_name = f"Automated procurement package {requisition.requisition_number or requisition.pk}"[:255]
+    catalog_item, _created = SupplierProformaItemPrice.objects.get_or_create(
+        item_name=item_name,
+        defaults={
+            "unit_price": amount,
+            "tax_rate": Decimal("0.00"),
+            "discount_allowed": False,
+            "active": True,
+        },
+    )
+    if catalog_item.unit_price != amount:
+        catalog_item.unit_price = amount
+        catalog_item.tax_rate = Decimal("0.00")
+        catalog_item.active = True
+        catalog_item.save(update_fields=["unit_price", "tax_rate", "active", "updated_at"])
+    proforma = SupplierProformaInvoice.objects.create(
+        requisition=requisition,
+        supplier=requisition.preferred_supplier,
+        proforma_date=timezone.localdate(),
+        valid_until=max(requisition.required_date, timezone.localdate()),
+        payment_terms="net_15",
+        status="received",
+        notes="Automatically generated from procurement notification action.",
+    )
+    SupplierProformaInvoiceItem.objects.create(
+        proforma=proforma,
+        catalog_item=catalog_item,
+        quantity=Decimal("1.00"),
+        unit_price=amount,
+        tax_rate=Decimal("0.00"),
+    )
+    proforma.status = "accepted"
+    proforma.save(update_fields=["status", "updated_at"])
+    return f"LPO {proforma.purchase_order.po_number} generated."
+
+
+def receive_procurement_goods(requisition, actor):
+    purchase_order = procurement_primary_purchase_order(requisition)
+    if not purchase_order:
+        raise ValidationError("Generate an LPO before receiving goods.")
+    if procurement_primary_grn(purchase_order):
+        return "Goods have already been received for this LPO."
+    GoodsReceivedNote.objects.create(
+        purchase_order=purchase_order,
+        received_date=timezone.localdate(),
+        received_by=actor,
+        delivery_note_number=f"AUTO-{purchase_order.po_number}",
+        quantity_summary="Goods/services received from automated procurement workflow action.",
+        condition_notes="Accepted through authorized notification action.",
+        status="accepted",
+    )
+    return "Goods received and supplier invoice approval notification created."
+
+
+def approve_procurement_invoice(requisition, actor):
+    purchase_order = procurement_primary_purchase_order(requisition)
+    if not purchase_order:
+        raise ValidationError("Generate an LPO before approving a supplier invoice.")
+    grn = procurement_primary_grn(purchase_order)
+    if not grn:
+        raise ValidationError("Receive goods before approving a supplier invoice.")
+    invoice = procurement_primary_supplier_invoice(purchase_order)
+    if not invoice:
+        invoice = SupplierInvoice.objects.create(
+            invoice_number=f"AUTO-{purchase_order.po_number}",
+            purchase_order=purchase_order,
+            goods_received_note=grn,
+            supplier=purchase_order.supplier,
+            invoice_date=timezone.localdate(),
+            due_date=procurement_due_date(purchase_order.payment_terms),
+            subtotal_amount=purchase_order.subtotal_amount,
+            tax_amount=purchase_order.tax_amount,
+            status="approved",
+            approved_by=actor,
+            notes="Automatically approved from procurement notification action.",
+        )
+    else:
+        invoice.status = "approved"
+        invoice.approved_by = actor
+        invoice.save(update_fields=["status", "approved_by", "amount_paid", "updated_at"])
+    invoice.create_payment_request()
+    return "Supplier invoice approved and payment request created."
+
+
+def pay_procurement_supplier(requisition, actor):
+    purchase_order = procurement_primary_purchase_order(requisition)
+    if not purchase_order:
+        raise ValidationError("No LPO exists for this payment.")
+    invoice = procurement_primary_supplier_invoice(purchase_order)
+    if not invoice:
+        raise ValidationError("No supplier invoice exists for this payment.")
+    payment = invoice.payments.filter(payment_status="initiated").order_by("-supplier_payment_id").first()
+    if not payment:
+        payment = invoice.create_payment_request()
+    if not payment:
+        raise ValidationError("No payable supplier amount is available.")
+    payment.approval_status = "approved"
+    payment.approved_by = actor
+    payment.paid_by = actor
+    payment.transaction_ref = payment.transaction_ref or f"AUTO-PAY-{payment.pk:06d}"
+    payment.remarks = payment.remarks or "Approved and paid from procurement notification action."
+    payment.save()
+    return "Supplier payment approved and marked as paid."
+
+
+def run_procurement_notification_action(notification, action, actor):
+    requisition = procurement_requisition_from_notification(notification)
+    allowed_actions = {action_name for action_name, _label in procurement_action_choices(notification)}
+    if action not in allowed_actions:
+        raise ValidationError("This action is not available for the selected procurement notification.")
+    handlers = {
+        "approve_request": approve_procurement_request,
+        "reject_request": reject_procurement_request,
+        "contact_supplier": contact_procurement_supplier,
+        "create_lpo": create_automated_lpo,
+        "receive_goods": receive_procurement_goods,
+        "approve_invoice": approve_procurement_invoice,
+        "pay_supplier": pay_procurement_supplier,
+    }
+    result_message = handlers[action](requisition, actor)
+    notification.status = "read"
+    notification.save(update_fields=["status", "updated_at"])
+    return result_message
+
+
+def procurement_notification_action(request, notification_id, action):
+    require_view_access(request, "procurement_notification_action")
+    notification = get_object_or_404(ProcurementNotification.objects.select_related("recipient"), pk=notification_id)
+    actor = notification_actor_for_user(request.user, notification)
+    if not actor:
+        messages.error(request, "You are not assigned to action this procurement notification.")
+        return redirect("webroaster:list", model_name="procurement")
+    if request.method != "POST":
+        return redirect("webroaster:list", model_name="procurement")
+    try:
+        with transaction.atomic():
+            result_message = run_procurement_notification_action(notification, action, actor)
+    except ValidationError as exc:
+        messages.error(request, "; ".join(exc.messages))
+    else:
+        messages.success(request, result_message)
+    return redirect("webroaster:list", model_name="procurement")
+
+
 def procurement_dashboard(request):
     register_items = [
         "suppliers",
@@ -833,7 +1083,11 @@ def procurement_dashboard(request):
     approved_requisitions = ProcurementRequisition.objects.filter(status="approved").select_related("preferred_supplier")[:8]
     pending_payments = SupplierPayment.objects.filter(approval_status="pending").select_related("supplier_invoice", "supplier_invoice__supplier")[:8]
     supplier_invoices_ready = SupplierInvoice.objects.filter(status="approved").select_related("supplier")[:8]
-    notifications = ProcurementNotification.objects.select_related("recipient")[:8]
+    notifications_queryset = ProcurementNotification.objects.select_related("recipient")
+    employee = employee_for_user(request.user)
+    if employee and not request.user.is_superuser:
+        notifications_queryset = notifications_queryset.filter(recipient=employee)
+    notifications = attach_procurement_action_choices(list(notifications_queryset[:8]))
     context = {
         "title": "Procurement",
         "module_cards": module_cards,
