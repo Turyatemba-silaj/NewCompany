@@ -10,6 +10,14 @@
   ],
   "routes": [
     {
+      "src": "/static/webroaster/(.*)",
+      "dest": "/webroaster/static/webroaster/$1"
+    },
+    {
+      "src": "/static/newcompany/(.*)",
+      "dest": "/NewCompany/static/newcompany/$1"
+    },
+    {
       "src": "/static/(.*)",
       "dest": "/staticfiles/$1"
     },
