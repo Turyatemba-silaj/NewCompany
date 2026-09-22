@@ -2078,6 +2078,27 @@ class BudgetAccountabilityTests(TestCase):
 
 
 class PublicWebsiteTests(TestCase):
+    def test_advance_asset_and_accountability_pages_open(self):
+        login_test_staff(self.client, "asset-advance-pages")
+
+        paths = [
+            "/advances/",
+            "/advances/add/",
+            "/assets/",
+            "/assets/add/",
+            "/assets/report/",
+            "/asset-assignments/",
+            "/asset-assignments/add/",
+            "/asset-assignments/report/",
+            "/asset-accountability/",
+            "/asset-accountability/add/",
+        ]
+
+        for path in paths:
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+
     def test_public_home_replaces_root_and_dashboard_moves(self):
         WebsiteAdvertisement.objects.create(title="Recruitment Drive", message="New guard roles open.", call_to_action="Apply")
         CompanyEvent.objects.create(title="Community Safety Day", event_date=date(2026, 8, 1), location="Kampala", summary="Client and community safety briefing.")

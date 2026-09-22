@@ -9,7 +9,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django.core.validators import MaxValueValidator, MinValueValidator
 
-# ==================== GOVERNANCE AND AUDIT ====================
+
 
 class AuditLog(models.Model):
     """Immutable request audit trail for security-sensitive staff activity."""
@@ -77,7 +77,7 @@ class UserPasswordProfile(models.Model):
     class Meta:
         db_table = "user_password_profiles"
 
-# ==================== PUBLIC WEBSITE ====================
+
 
 class WebsiteAdvertisement(models.Model):
     advert_id = models.AutoField(primary_key=True)

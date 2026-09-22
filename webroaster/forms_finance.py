@@ -50,7 +50,8 @@ class AdvanceForm(StyledModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["disbursement_date"].disabled = True
+        if "disbursement_date" in self.fields:
+            self.fields["disbursement_date"].disabled = True
 
 
 class ExpenseForm(StyledModelForm):
