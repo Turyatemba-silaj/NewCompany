@@ -44,6 +44,19 @@ def first_env_value(*names):
     return None
 
 
+def first_database_url(*names):
+    for name in names:
+        value = os.environ.get(name)
+        if not value:
+            continue
+        value = value.strip().strip("'\"")
+        if "://" not in value and os.environ.get(value):
+            value = os.environ[value].strip().strip("'\"")
+        if value:
+            return value
+    return None
+
+
 def database_url_requires_ssl(database_url):
     parsed = urlparse(database_url)
     if parsed.hostname in {"127.0.0.1", "localhost"}:
@@ -141,7 +154,7 @@ WSGI_APPLICATION = 'NewCompany.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-DATABASE_URL = first_env_value(
+DATABASE_URL = first_database_url(
     "DATABASE_URL",
     "POSTGRES_URL",
     "POSTGRES_PRISMA_URL",
