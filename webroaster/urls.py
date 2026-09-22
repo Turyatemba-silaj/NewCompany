@@ -10,6 +10,7 @@ staff_required = user_passes_test(lambda user: user.is_authenticated and user.is
 
 urlpatterns = [
     path("", public.public_home, name="public_home"),
+    path("site-images/<slug:image_name>.png", public.public_seed_image, name="public_seed_image"),
     path("system/health/", views.system_health, name="system_health"),
     path("staff/login/", auth_views.LoginView.as_view(template_name="webroaster/login.html"), name="login"),
     path("staff/forgot-password/", accounts.forgot_password, name="forgot_password"),

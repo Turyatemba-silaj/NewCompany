@@ -2211,6 +2211,14 @@ class PublicWebsiteTests(TestCase):
         self.assertEqual(dashboard_response.status_code, 200)
         self.assertContains(dashboard_response, "Dashboard")
 
+    def test_public_seed_images_are_served_by_django(self):
+        response = self.client.get("/site-images/security-hero.png")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Content-Type"], "image/png")
+        self.assertTrue(response.streaming)
+        self.assertEqual(self.client.get("/site-images/missing.png").status_code, 404)
+
     def test_careers_accepts_online_application(self):
         job = JobPosting.objects.create(
             title="Security Guard",

@@ -3,12 +3,31 @@ from django.conf import settings
 from django.core.mail import send_mail
 from django.db import DatabaseError
 from django.db.models import Q
-from django.http import Http404
+from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .forms_public import PublicJobApplicationForm
 from .models import AssociatedLink, Client, CompanyEvent, Employee, JobApplication, JobApplicationNotification, JobPosting, Region, Site, WebsiteAdvertisement, WebsiteResource
+
+PUBLIC_SEED_IMAGES = {
+    "security-hero": "security-hero.png",
+    "manned-guarding": "manned-guarding.png",
+    "mobile-patrols": "mobile-patrols.png",
+    "incident-response": "incident-response.png",
+    "asset-protection": "asset-protection.png",
+}
+
+
+def public_seed_image(request, image_name):
+    filename = PUBLIC_SEED_IMAGES.get(image_name)
+    if not filename:
+        raise Http404("The requested public image does not exist.")
+    image_path = settings.BASE_DIR / "webroaster" / "static" / "webroaster" / "images" / "seed" / filename
+    if not image_path.exists():
+        raise Http404("The requested public image is not available.")
+    return FileResponse(image_path.open("rb"), content_type="image/png")
+
 
 def public_site_context():
     today = timezone.localdate()
