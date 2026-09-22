@@ -4,6 +4,16 @@ import traceback
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "NewCompany.settings")
 
 try:
+    from django.conf import settings
+
+    if os.environ.get("VERCEL") and os.environ.get("DJANGO_AUTO_MIGRATE", "1").lower() not in {"0", "false", "no", "off"}:
+        if not getattr(settings, "VERCEL_CONFIGURATION_ERRORS", []):
+            import django
+            from django.core.management import call_command
+
+            django.setup()
+            call_command("migrate", interactive=False, verbosity=0)
+
     from NewCompany.wsgi import application
 except Exception as exc:
     startup_error = f"{exc.__class__.__name__}: {exc}"
