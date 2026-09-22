@@ -335,6 +335,27 @@ class Salary(models.Model):
 
     def save(self, *args, **kwargs):
         self.update_basic_salary()
+        if self._state.adding and self.employee_id:
+            existing_salary = type(self).objects.filter(employee_id=self.employee_id).first()
+            if existing_salary:
+                existing_salary.basic_salary = self.basic_salary
+                existing_salary.allowances = self.allowances
+                existing_salary.deductions = self.deductions
+                existing_salary.overtime_pay = self.overtime_pay
+                existing_salary.bonus = self.bonus
+                existing_salary.pay_period = self.pay_period
+                existing_salary.save(update_fields=[
+                    "basic_salary",
+                    "allowances",
+                    "deductions",
+                    "overtime_pay",
+                    "bonus",
+                    "pay_period",
+                    "updated_at",
+                ])
+                self.salary_id = existing_salary.salary_id
+                self._state.adding = False
+                return
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             kwargs["update_fields"] = set(update_fields) | {"basic_salary", "overtime_pay"}
@@ -395,10 +416,6 @@ class Salary(models.Model):
             else:
                 recovered_now += max(recovery_amount - current_recovery_amount, Decimal("0.00"))
             remaining_recovery -= recovery_amount
-
-            if advance.outstanding_balance <= 0:
-                advance.status = "recovered"
-                advance.save(update_fields=["status", "updated_at"])
 
         return recovered_now
 
@@ -482,13 +499,23 @@ class Advance(models.Model):
         supervisors = Employee.objects.filter(status="active").filter(
             models.Q(role="supervisor") | models.Q(role="manager")
         ).distinct()
+        supervisor_count = supervisors.count()
         for employee in supervisors:
             self.notify(employee, "Supervisor", "verification_requested", message)
+        if supervisor_count == 0 and self.verification_status == "pending":
+            self.verification_status = "verified"
+            self.verified_at = timezone.now()
+            type(self).objects.filter(pk=self.pk).update(
+                verification_status=self.verification_status,
+                verified_at=self.verified_at,
+            )
         hr_staff = Employee.objects.filter(status="active").filter(
             models.Q(role="hr_officer") | models.Q(department="hr")
         ).distinct()
+        recipient_group = "HR Approver" if supervisor_count == 0 else "HR Officer"
+        notification_type = "approval_requested" if supervisor_count == 0 else "request_received"
         for employee in hr_staff:
-            self.notify(employee, "HR Officer", "request_received", message)
+            self.notify(employee, recipient_group, notification_type, message)
 
     def refresh_payroll(self):
         salary = getattr(self.employee, "salary", None)
@@ -760,11 +787,17 @@ class Invoice(models.Model):
         return lines
 
     def generate_invoice_number(self):
-        if self.invoice_id:
-            return f"INV{self.invoice_id:03d}"
-        latest = Invoice.objects.order_by("-invoice_id").first()
-        next_id = (latest.invoice_id + 1) if latest else 1
-        return f"INV{next_id:03d}"
+        used_numbers = []
+        invoice_numbers = Invoice.objects.exclude(pk=self.pk).values_list("invoice_number", flat=True)
+        for invoice_number in invoice_numbers:
+            if not invoice_number or not invoice_number.startswith("INV"):
+                continue
+            try:
+                used_numbers.append(int(invoice_number[3:]))
+            except ValueError:
+                continue
+        next_number = (max(used_numbers) + 1) if used_numbers else 1
+        return f"INV{next_number:03d}"
 
     def build_contract_description(self):
         start_date, end_date = self.effective_billing_dates()
@@ -1497,8 +1530,6 @@ class ProcurementRequisition(models.Model):
             raise ValidationError("Procurement requisitions can only use approved budgets.")
         if self.budget_id and self.estimated_amount > self.budget.remaining_amount:
             raise ValidationError("Estimated procurement amount cannot exceed the selected budget balance.")
-        if self.status in ("draft", "submitted") and self.required_date and self.required_date < timezone.localdate():
-            raise ValidationError("Required date cannot be in the past.")
         if self.status not in ("draft", "cancelled") and not self.requested_by_id:
             raise ValidationError("Submitted procurement requisitions require a requester.")
         if self.status in ("supplier_contacted", "proforma_received", "converted") and not self.preferred_supplier_id:

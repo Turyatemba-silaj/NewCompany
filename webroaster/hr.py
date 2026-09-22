@@ -481,17 +481,20 @@ def advance_notification_action(request, notification_id, action):
             outcome = "verified"
         elif action == "approve":
             advance.approval_status = "approved"
-            advance.status = "pending"
+            advance.status = "disbursed"
+            advance.disbursement_date = advance.disbursement_date or timezone.localdate()
             advance.approved_by = notification.recipient
-            advance.save(update_fields=["approval_status", "status", "approved_by", "updated_at"])
+            advance.save(update_fields=["approval_status", "status", "disbursement_date", "approved_by", "updated_at"])
+            advance.refresh_payroll()
             notification_type = "advance_approved"
             outcome = "approved"
-            finance_message = f"Salary advance for {advance.employee} was approved by HR and is ready for payment."
+            finance_message = f"Salary advance for {advance.employee} was approved by HR and disbursed."
             finance_staff = Employee.objects.filter(status="active").filter(
                 Q(role__in=("finance_officer", "administrator", "manager")) | Q(department="finance")
             ).distinct()
             for employee in finance_staff:
-                advance.notify(employee, "Finance", "payment_requested", finance_message)
+                advance.notify(employee, "Finance", "finance_update", finance_message)
+            advance.notify(advance.employee, "Requester", notification_type, f"Your salary advance request of UGX {advance.amount_requested:,.2f} was approved.")
         elif action == "reject":
             advance.approval_status = "rejected"
             advance.status = "rejected"

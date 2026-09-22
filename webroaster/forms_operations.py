@@ -185,6 +185,13 @@ class SiteForm(StyledModelForm):
         if contract and client and contract.client_id != client.pk:
             self.add_error("contract", "Selected contract does not belong to the selected client.")
 
+        if client and cleaned_data.get("site_name"):
+            duplicate_sites = Site.objects.filter(client=client, site_name__iexact=cleaned_data["site_name"].strip())
+            if self.instance.pk:
+                duplicate_sites = duplicate_sites.exclude(pk=self.instance.pk)
+            if duplicate_sites.exists():
+                self.add_error("site_name", "This client already has a site with this name.")
+
         if not cleaned_data.get("region"):
             site_for_inference = Site(site_name=cleaned_data.get("site_name") or "", site_address=cleaned_data.get("site_address") or "")
             inferred_region = site_for_inference.infer_region_from_location()

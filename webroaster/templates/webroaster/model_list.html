@@ -86,7 +86,7 @@
                                 {% if model_name == "salaries" %}<a class="action-btn workflow" href="{% url 'webroaster:salary_payslip' row.pk %}" title="Open payslip">Payslip</a>{% endif %}
                                 {% if model_name == "invoices" %}<a class="action-btn workflow" href="{% url 'webroaster:invoice_document' row.pk %}" title="Open invoice">Invoice</a>{% endif %}
                                 {% if model_name == "payments" %}<a class="action-btn workflow" href="{% url 'webroaster:payment_receipt' row.pk %}" title="Open receipt">Receipt</a>{% endif %}
-                                {% if model_name == "payments" %}<a class="action-btn secondary" href="{% url 'webroaster:payment_reconciliation' row.pk %}" title="Open reconciliation">Reconcile</a>{% endif %}
+                                {% if model_name == "payments" %}<a class="action-btn secondary" href="{% url 'webroaster:payment_reconciliation' row.pk %}" title="Open reconciliation">Reconciliation</a>{% endif %}
                                 {% if model_name == "purchase-orders" %}<a class="action-btn workflow" href="{% url 'webroaster:purchase_order_lpo_report' row.pk %}" title="Open LPO">LPO</a>{% endif %}
                                 {% if model_name == "training" %}<a class="action-btn workflow" href="{% url 'webroaster:training_certificate' row.pk %}" title="Generate certificate">Certificate</a>{% endif %}
                                 {% if model_name == "procurement-requisitions" and row.object.can_contact_supplier %}<form method="post" action="{% url 'webroaster:procurement_contact_supplier' row.pk %}">{% csrf_token %}<button class="action-btn workflow" type="submit" title="Contact supplier">Contact</button></form>{% endif %}

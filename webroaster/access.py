@@ -228,6 +228,8 @@ def advance_notification_groups(user):
     if getattr(user, "is_superuser", False):
         return None
     groups = user_group_names(user)
+    if not groups.intersection(ROLE_GROUPS):
+        return None
     allowed = set()
     if "Supervisor" in groups or "Operations Manager" in groups:
         allowed.add("Supervisor")

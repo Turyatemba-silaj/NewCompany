@@ -914,6 +914,32 @@ class SiteDeploymentAreaTests(TestCase):
         self.assertEqual(site_one.site_code, f"{contract.contract_number}-S001")
         self.assertEqual(site_two.site_code, f"{contract.contract_number}-S002")
 
+    def test_site_form_rejects_duplicate_site_name_for_client(self):
+        region = Region.objects.create(region_name="Duplicate Site Region")
+        contract = self.make_contract()
+        Site.objects.create(
+            client=contract.client,
+            contract=contract,
+            region=region,
+            site_name="Equity Head Office",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+
+        form = SiteForm(data={
+            "region": region.pk,
+            "client": contract.client.pk,
+            "contract": contract.pk,
+            "site_name": "equity head office",
+            "site_address": "Makerere",
+            "day_shift_guards": 1,
+            "night_shift_guards": 0,
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("already has a site", str(form.errors["site_name"]))
+
     def test_deployment_form_allows_fewer_day_guards_than_site_day_shift(self):
         region = Region.objects.create(region_name="Deployment Without Guard Region")
         contract = self.make_contract()

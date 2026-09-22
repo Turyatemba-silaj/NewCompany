@@ -276,6 +276,12 @@ class Site(models.Model):
             self.region = self.infer_region_from_location()
         if not self.region_id:
             raise ValidationError("Choose a deployment area for this site or include a recognizable site location, for example Kampala Road or Mbarara.")
+        if self.client_id and self.site_name:
+            duplicate_sites = Site.objects.filter(client_id=self.client_id, site_name__iexact=self.site_name.strip())
+            if self.pk:
+                duplicate_sites = duplicate_sites.exclude(pk=self.pk)
+            if duplicate_sites.exists():
+                raise ValidationError({"site_name": "This client already has a site with this name."})
         if self.contract_id:
             if self.client_id and self.contract.client_id != self.client_id:
                 raise ValidationError("Selected contract does not belong to the selected client.")
