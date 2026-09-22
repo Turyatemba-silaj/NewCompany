@@ -1,54 +1,208 @@
-﻿{% extends "webroaster/public_base.html" %}
+{% extends "webroaster/public_base.html" %}
 {% load static %}
 {% load format_values %}
-{% block title %}NewCompany{% endblock %}
+{% block title %}NewCompany Security Services{% endblock %}
 {% block content %}
-<section class="home-slider" data-slider data-slide-interval="45000">
+{% if adverts %}
+<section class="notice-strip" aria-label="Company adverts">
+    <div class="notice-inner">
+        {% for advert in adverts|slice:":4" %}
+            <a class="notice" href="{{ advert.target_url|default:'#' }}">{{ advert.title }}</a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
+<section class="home-slider" data-slider data-slide-interval="9000">
     <article class="slide active">
-        <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
+        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Professional security officers at a modern access control point">
         <div class="slide-content">
+            <p class="eyebrow">Security services</p>
             <h1>NewCompany</h1>
-            <div class="actions"><a class="btn blue" href="{% url 'webroaster:what_we_do' %}">Services</a></div>
+            <p class="lead">Disciplined guarding, patrol supervision, and incident response for businesses that need visible protection and accountable records.</p>
+            <div class="hero-actions">
+                <a class="btn primary" href="{% url 'webroaster:what_we_do' %}">View Services</a>
+                <a class="btn light" href="{% url 'webroaster:careers' %}">Apply for Jobs</a>
+            </div>
+            <div class="stat-grid compact">
+                <div class="stat"><b data-count-up="{{ stats.guards|default:0 }}">0</b><span>Active guards</span></div>
+                <div class="stat"><b data-count-up="{{ stats.sites|default:0 }}">0</b><span>Client sites</span></div>
+                <div class="stat"><b data-count-up="{{ stats.clients|default:0 }}">0</b><span>Clients</span></div>
+                <div class="stat"><b data-count-up="{{ stats.regions|default:0 }}">0</b><span>Regions</span></div>
+            </div>
         </div>
     </article>
-    {% for event in events|slice:":1" %}
-        <article class="slide">
-            <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Company event background">
-            <div class="slide-content">
-                <h1>{{ event.title }}</h1>
+    <article class="slide">
+        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Security response team prepared for site operations">
+        <div class="slide-content">
+            <p class="eyebrow">Service advert</p>
+            <h1>Manned guarding for offices, estates, schools, and industrial sites.</h1>
+            <p class="lead">Deploy trained officers with supervisor follow-up, attendance control, and incident records clients can trust.</p>
+            <div class="hero-actions">
+                <a class="btn primary" href="#services">Explore Services</a>
+                <a class="btn light" href="{% url 'webroaster:where_we_work' %}">Coverage Areas</a>
             </div>
-        </article>
-    {% endfor %}
-    {% for job in open_jobs|slice:":1" %}
+        </div>
+    </article>
+    <article class="slide">
+        <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Security control and reporting operation">
+        <div class="slide-content">
+            <p class="eyebrow">Recruitment</p>
+            <h1>Join a professional security team with online applications.</h1>
+            <p class="lead">Apply for open guard, supervisor, operations, and administrative positions through the public careers portal.</p>
+            <div class="hero-actions">
+                <a class="btn primary" href="{% url 'webroaster:careers' %}">Open Careers</a>
+                {% for job in open_jobs|slice:":1" %}
+                    <a class="btn light" href="{% url 'webroaster:job_detail' job.pk %}">Apply: {{ job.title }}</a>
+                {% endfor %}
+            </div>
+        </div>
+    </article>
+    {% for advert in adverts|slice:":2" %}
         <article class="slide">
-            <img src="{% static 'newcompany/images/security-operations-hero.png' %}" alt="Careers background">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="{{ advert.title }}">
             <div class="slide-content">
-                <h1>{{ job.title }}</h1>
+                <p class="eyebrow">Company advert</p>
+                <h1>{{ advert.title }}</h1>
+                {% if advert.message %}<p class="lead">{{ advert.message }}</p>{% endif %}
+                {% if advert.target_url %}<div class="hero-actions"><a class="btn primary" href="{{ advert.target_url }}">{{ advert.call_to_action|default:"Learn More" }}</a></div>{% endif %}
             </div>
         </article>
     {% endfor %}
     <div class="slider-controls">
-        <div class="slide-arrows"><button class="slide-arrow" type="button" data-slide-prev aria-label="Previous slide">Prev</button><button class="slide-arrow" type="button" data-slide-next aria-label="Next slide">Next</button></div>
+        <div class="slide-arrows">
+            <button class="slide-arrow" type="button" data-slide-prev aria-label="Previous slide">&#8249;</button>
+            <button class="slide-arrow" type="button" data-slide-next aria-label="Next slide">&#8250;</button>
+        </div>
         <div class="slide-dots" data-slide-dots></div>
     </div>
 </section>
-<section class="section">
-    <h2>Security Services</h2>
-    <div class="grid">
-        <article class="card"><h3>Manned Guarding</h3></article>
-        <article class="card"><h3>Incident Response</h3></article>
-        <article class="card"><h3>Asset Protection</h3></article>
-        <article class="card"><h3>Client Documentation</h3></article>
+
+<section class="section service-band" id="services">
+    <div class="section-heading">
+        <p class="eyebrow">What we protect</p>
+        <h2>Security services built for daily operations.</h2>
+        <p class="lead">Each service is designed for practical field control: trained people, clear supervision, documented incidents, and timely client reporting.</p>
+    </div>
+    <div class="service-grid">
+        <article class="service-card image-card" data-service-card="guarding">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Manned guarding service">
+            <div><span>01</span><h3>Manned Guarding</h3><p>Uniformed security officers for access points, premises patrols, reception control, and visitor screening.</p></div>
+        </article>
+        <article class="service-card image-card" data-service-card="patrols">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Mobile patrol and site supervision service">
+            <div><span>02</span><h3>Mobile Patrols</h3><p>Scheduled patrol checks, supervisor visits, shift coverage, and escalation support for dispersed sites.</p></div>
+        </article>
+        <article class="service-card image-card" data-service-card="response">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Incident response service">
+            <div><span>03</span><h3>Incident Response</h3><p>Incident recording, investigation follow-up, notifications, and evidence-ready reports for management.</p></div>
+        </article>
+        <article class="service-card image-card" data-service-card="assets">
+            <img src="{% static 'webroaster/images/security-operations-hero.png' %}" alt="Asset protection service">
+            <div><span>04</span><h3>Asset Protection</h3><p>Control of issued equipment, stores accountability, vehicle details, and asset assignment documentation.</p></div>
+        </article>
     </div>
 </section>
-<section class="section alt"><div class="section-inner">
-    <h2>Company Updates</h2>
-    <div class="filters"><button class="filter active" data-filter="all">All</button><button class="filter" data-filter="event">Events</button><button class="filter" data-filter="resource">Resources</button><button class="filter" data-filter="job">Jobs</button></div>
-    <div class="grid">
-        {% for event in events %}<article class="card" data-card-type="event"><strong>{{ event.title }}</strong></article>{% endfor %}
-        {% for job in open_jobs %}<article class="card" data-card-type="job"><strong>{{ job.title }}</strong><a href="{% url 'webroaster:job_detail' job.pk %}">Apply</a></article>{% endfor %}
+
+<section class="section alt">
+    <div class="section-inner split-layout">
+        <div>
+            <p class="eyebrow">Operations model</p>
+            <h2>Pick a service to see how deployment works.</h2>
+            <p class="lead">Our field workflow connects client sites, deployment areas, guards, supervisors, attendance, incidents, and reports.</p>
+            <div class="service-tabs" role="tablist" aria-label="Security service details">
+                <button class="filter active" type="button" data-service-tab="guarding">Guarding</button>
+                <button class="filter" type="button" data-service-tab="patrols">Patrols</button>
+                <button class="filter" type="button" data-service-tab="response">Response</button>
+                <button class="filter" type="button" data-service-tab="assets">Assets</button>
+            </div>
+        </div>
+        <article class="service-detail" data-service-detail>
+            <h3>Manned Guarding</h3>
+            <p>We place trained officers at client premises, track attendance, assign supervisors, and keep site records ready for review.</p>
+            <ul>
+                <li>Access control and visitor management</li>
+                <li>Day and night shift coverage</li>
+                <li>Supervisor checklist and attendance records</li>
+            </ul>
+        </article>
     </div>
-</div></section>
+</section>
+
+<section class="section careers-panel">
+    <div class="careers-copy">
+        <p class="eyebrow">Careers</p>
+        <h2>Online job applications are open to the public.</h2>
+        <p class="lead">Applicants can view active postings, submit their details, and upload documents directly through the website.</p>
+        <a class="btn primary" href="{% url 'webroaster:careers' %}">Apply Online</a>
+    </div>
+    <div class="job-list">
+        {% for job in open_jobs|slice:":3" %}
+            <article class="job-card">
+                <h3>{{ job.title }}</h3>
+                <p class="muted">{{ job.department }}{% if job.location %} - {{ job.location }}{% endif %}</p>
+                <p>{{ job.summary|truncatewords:22 }}</p>
+                <a class="btn" href="{% url 'webroaster:job_detail' job.pk %}">Apply</a>
+            </article>
+        {% empty %}
+            <article class="job-card">
+                <h3>No open jobs today</h3>
+                <p class="muted">New positions will appear here as soon as HR publishes them.</p>
+                <a class="btn" href="{% url 'webroaster:careers' %}">Careers</a>
+            </article>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="section alt">
+    <div class="section-inner">
+        <div class="section-heading row-heading">
+            <div>
+                <p class="eyebrow">Updates</p>
+                <h2>Company adverts, events, resources, and jobs.</h2>
+            </div>
+            <div class="filters">
+                <button class="filter active" type="button" data-filter="all">All</button>
+                <button class="filter" type="button" data-filter="advert">Adverts</button>
+                <button class="filter" type="button" data-filter="event">Events</button>
+                <button class="filter" type="button" data-filter="resource">Resources</button>
+                <button class="filter" type="button" data-filter="job">Jobs</button>
+            </div>
+        </div>
+        <div class="updates-grid">
+            {% for advert in adverts %}
+                <article class="update-card" data-card-type="advert">
+                    <strong>{{ advert.title }}</strong>
+                    {% if advert.message %}<p>{{ advert.message|truncatewords:24 }}</p>{% endif %}
+                    {% if advert.target_url %}<a href="{{ advert.target_url }}">{{ advert.call_to_action|default:"Open advert" }}</a>{% endif %}
+                </article>
+            {% endfor %}
+            {% for event in events %}
+                <article class="update-card" data-card-type="event">
+                    <strong>{{ event.title }}</strong>
+                    <p class="muted">{{ event.event_date }}</p>
+                    {% if event.summary %}<p>{{ event.summary|truncatewords:24 }}</p>{% endif %}
+                </article>
+            {% endfor %}
+            {% for resource in resources %}
+                <article class="update-card" data-card-type="resource">
+                    <strong>{{ resource.title }}</strong>
+                    <p class="muted">{{ resource.resource_type }}</p>
+                    {% if resource.summary %}<p>{{ resource.summary|truncatewords:24 }}</p>{% endif %}
+                </article>
+            {% endfor %}
+            {% for job in open_jobs %}
+                <article class="update-card" data-card-type="job">
+                    <strong>{{ job.title }}</strong>
+                    <p class="muted">{{ job.department }}{% if job.deadline %} - Deadline {{ job.deadline }}{% endif %}</p>
+                    <a href="{% url 'webroaster:job_detail' job.pk %}">Apply online</a>
+                </article>
+            {% endfor %}
+            <article class="update-card empty-update" data-empty-updates>
+                <strong>More updates coming soon</strong>
+                <p class="muted">Published adverts, resources, events, and jobs will appear here automatically.</p>
+            </article>
+        </div>
+    </div>
+</section>
 {% endblock %}
-
-

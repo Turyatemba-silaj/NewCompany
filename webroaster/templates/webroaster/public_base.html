@@ -5,89 +5,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}NewCompany{% endblock %}</title>
-    <style>
-        :root { --ink:#17202a; --muted:#667085; --line:#d8dee8; --panel:#fff; --blue:#163f7a; --teal:#0f766e; --gold:#b7791f; --soft:#f3f7fb; --danger:#9f1d2f; }
-        * { box-sizing: border-box; }
-        body { margin:0; font-family: Arial, Helvetica, sans-serif; color:var(--ink); background:#ffffff; font-size:14px; line-height:1.5; }
-        a { color: inherit; }
-        .site-header { position:sticky; top:0; z-index:10; background:rgba(255,255,255,.94); border-bottom:1px solid var(--line); backdrop-filter:blur(14px); }
-        .nav-wrap { width:min(1180px, calc(100% - 32px)); margin:0 auto; min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
-        .brand { display:flex; align-items:center; gap:10px; text-decoration:none; font-weight:800; }
-        .brand-mark { width:40px; height:40px; border-radius:8px; background:var(--blue); color:#fff; display:grid; place-items:center; }
-        .brand small { display:block; color:var(--muted); font-weight:700; }
-        .site-nav { display:flex; align-items:center; gap:4px; flex-wrap:wrap; }
-        .site-nav a { text-decoration:none; padding:9px 10px; border-radius:6px; color:#344054; font-weight:700; font-size:13px; }
-        .site-nav a:hover, .site-nav a.active { background:#e9f2ff; color:var(--blue); }
-        .menu-toggle { display:none; border:1px solid var(--line); background:#fff; border-radius:6px; padding:8px 10px; font:inherit; }
-        .btn { display:inline-flex; align-items:center; justify-content:center; min-height:38px; padding:9px 13px; border-radius:6px; border:1px solid var(--line); background:#fff; color:var(--ink); text-decoration:none; cursor:pointer; font:inherit; font-weight:700; }
-        .btn.primary { background:var(--teal); color:#fff; border-color:var(--teal); }
-        .btn.blue { background:var(--blue); color:#fff; border-color:var(--blue); }
-        main { min-height:70vh; }
-        .hero { background:#eef5f9; border-bottom:1px solid var(--line); }
-        .hero-inner { width:min(1180px, calc(100% - 32px)); margin:0 auto; display:grid; grid-template-columns:minmax(0, 1.05fr) minmax(360px, .95fr); gap:28px; align-items:center; padding:58px 0 42px; }
-        .eyebrow { color:var(--teal); text-transform:uppercase; font-size:12px; font-weight:800; letter-spacing:0; margin:0 0 8px; }
-        h1 { font-size:42px; line-height:1.05; margin:0 0 14px; max-width:760px; }
-        h2 { font-size:26px; margin:0 0 10px; }
-        h3 { font-size:17px; margin:0 0 8px; }
-        p { margin:0 0 12px; }
-        .lead { font-size:17px; color:#344054; max-width:760px; }
-        .hero-visual { min-height:330px; border-radius:8px; position:relative; overflow:hidden; background:#102a43; box-shadow:0 24px 60px rgba(17,35,56,.22); }
-        .hero-visual img { width:100%; height:100%; min-height:330px; object-fit:cover; display:block; }
-        .hero-visual::before { content:""; position:absolute; inset:0; z-index:1; background:linear-gradient(90deg, rgba(5,15,28,.62), rgba(5,15,28,.12) 48%, rgba(5,15,28,.05)); pointer-events:none; }
-        .visual-caption { position:absolute; z-index:2; left:22px; right:22px; bottom:18px; color:#fff; display:flex; justify-content:space-between; gap:12px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.35); }
-        .home-slider { position:relative; min-height:560px; overflow:hidden; background:#102a43; }
-        .slide { position:absolute; inset:0; opacity:0; pointer-events:none; transition:opacity .65s ease; display:grid; align-items:center; }
-        .slide.active { opacity:1; pointer-events:auto; }
-        .slide img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-        .slide::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg, rgba(8,18,34,.78) 0%, rgba(8,18,34,.48) 46%, rgba(8,18,34,.16) 100%); }
-        .slide-content { position:relative; z-index:1; width:min(1180px, calc(100% - 32px)); margin:0 auto; color:#fff; padding:70px 0 58px; }
-        .slide-content .eyebrow { color:#9ee7db; }
-        .slide-content h1 { color:#fff; max-width:720px; }
-        .slide-content .lead { color:#e5eef8; max-width:680px; }
-        .slide-content .stat-grid { max-width:720px; }
-        .slide-content .stat { background:rgba(255,255,255,.92); color:var(--ink); }
-        .slider-controls { position:absolute; z-index:3; left:0; right:0; bottom:22px; width:min(1180px, calc(100% - 32px)); margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:14px; }
-        .slide-arrows { display:flex; gap:8px; }
-        .slide-arrow, .slide-dot { border:1px solid rgba(255,255,255,.5); background:rgba(255,255,255,.16); color:#fff; cursor:pointer; }
-        .slide-arrow { width:42px; height:42px; border-radius:50%; font-size:22px; line-height:1; }
-        .slide-dots { display:flex; gap:8px; align-items:center; }
-        .slide-dot { width:12px; height:12px; border-radius:50%; padding:0; }
-        .slide-dot.active { background:#fff; }
-        .section { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:38px 0; }
-        .section.alt { width:100%; background:var(--soft); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
-        .section.alt > .section-inner { width:min(1180px, calc(100% - 32px)); margin:0 auto; }
-        .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
-        .card { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; min-width:0; }
-        .card strong { display:block; margin-bottom:4px; }
-        .muted { color:var(--muted); }
-        .stat-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:12px; margin-top:18px; }
-        .stat { background:#fff; border:1px solid var(--line); border-radius:8px; padding:15px; }
-        .stat b { display:block; font-size:24px; color:var(--blue); }
-        .notice-strip { background:#fff8e6; border-bottom:1px solid #f5d28b; }
-        .notice-inner { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:10px 0; display:flex; gap:10px; overflow:auto; }
-        .notice { white-space:nowrap; color:#694200; font-weight:700; }
-        .filters { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 18px; }
-        .filter { border:1px solid var(--line); background:#fff; border-radius:6px; padding:8px 10px; cursor:pointer; font-weight:700; }
-        .filter.active { background:var(--blue); border-color:var(--blue); color:#fff; }
-        .form-grid { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; }
-        .form-row { display:flex; flex-direction:column; gap:5px; }
-        .form-row.full { grid-column:1/-1; }
-        input, select, textarea { border:1px solid var(--line); border-radius:6px; padding:10px; font:inherit; width:100%; }
-        label { font-weight:800; }
-        .errorlist { color:var(--danger); margin:4px 0; padding-left:18px; }
-        .messages { width:min(1180px, calc(100% - 32px)); margin:14px auto 0; }
-        .message { border:1px solid var(--line); background:#f0fdf4; padding:10px 12px; border-radius:6px; }
-        .site-footer { background:#101828; color:#e4e7ec; margin-top:38px; }
-        .footer-inner { width:min(1180px, calc(100% - 32px)); margin:0 auto; padding:28px 0; display:grid; grid-template-columns:1.2fr repeat(3, 1fr); gap:18px; }
-        .footer-inner a { color:#dbeafe; text-decoration:none; display:block; margin:4px 0; }
-        @media (max-width: 900px) { .home-slider { min-height:640px; } .slide-content { padding-top:48px; } .slider-controls { bottom:14px; } .hero-inner { grid-template-columns:1fr; padding-top:34px; } h1 { font-size:34px; } .site-nav { display:none; width:100%; } .site-nav.open { display:flex; } .menu-toggle { display:inline-flex; } .nav-wrap { flex-wrap:wrap; padding:10px 0; } .stat-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .footer-inner { grid-template-columns:1fr 1fr; } .form-grid { grid-template-columns:1fr; } }
-        @media (max-width: 560px) { .stat-grid, .footer-inner { grid-template-columns:1fr; } .hero-visual, .hero-visual img { min-height:260px; } }
-    </style>
+    <link rel="stylesheet" href="{% static 'webroaster/css/public-site.css' %}">
 </head>
 <body>
 <header class="site-header">
     <div class="nav-wrap">
-        <a class="brand" href="{% url 'webroaster:public_home' %}"><span class="brand-mark">NC</span><span>NewCompany<small>ERP</small></span></a>
+        <a class="brand" href="{% url 'webroaster:public_home' %}"><span class="brand-mark">NC</span><span>NewCompany<small>Security Services</small></span></a>
         <button class="menu-toggle" type="button" data-menu-toggle>Menu</button>
         <nav class="site-nav" data-site-nav>
             <a class="{% if active_public == 'home' %}active{% endif %}" href="{% url 'webroaster:public_home' %}">Home</a>
@@ -97,6 +20,7 @@
             <a class="{% if active_public == 'impact' %}active{% endif %}" href="{% url 'webroaster:impact' %}">Impact</a>
             <a class="{% if active_public == 'resources' %}active{% endif %}" href="{% url 'webroaster:resources' %}">Resources</a>
             <a class="{% if active_public == 'careers' %}active{% endif %}" href="{% url 'webroaster:careers' %}">Careers</a>
+            <a class="nav-cta" href="{% url 'webroaster:careers' %}">Apply Online</a>
             <a href="{% url 'webroaster:home' %}">Staff</a>
         </nav>
     </div>
@@ -105,65 +29,13 @@
 <main>{% block content %}{% endblock %}</main>
 <footer class="site-footer">
     <div class="footer-inner">
-        <div><h3>NewCompany</h3><p class="muted">Professional security operations, accountable deployments, and client-focused protection.</p></div>
+        <div><h3>NewCompany</h3><p class="muted">Professional guarding, patrol supervision, incident response, and accountable protection for client sites.</p></div>
         <div><h3>Company</h3><a href="{% url 'webroaster:who_we_are' %}">Who We Are</a><a href="{% url 'webroaster:what_we_do' %}">What We Do</a><a href="{% url 'webroaster:impact' %}">Impact</a></div>
         <div><h3>Opportunities</h3><a href="{% url 'webroaster:careers' %}">Careers</a><a href="{% url 'webroaster:resources' %}">Resources</a></div>
         <div><h3>Office</h3><p>Online applications are captured immediately. Physical applications can be recorded by HR through Job Applications.</p></div>
     </div>
 </footer>
-<script>
-    const toggle = document.querySelector('[data-menu-toggle]');
-    const nav = document.querySelector('[data-site-nav]');
-    if (toggle && nav) toggle.addEventListener('click', () => nav.classList.toggle('open'));
-    document.querySelectorAll('[data-slider]').forEach((slider) => {
-        const slides = Array.from(slider.querySelectorAll('.slide'));
-        const dotsWrap = slider.querySelector('[data-slide-dots]');
-        const prev = slider.querySelector('[data-slide-prev]');
-        const next = slider.querySelector('[data-slide-next]');
-        let index = 0;
-        let timer = null;
-        const slideIntervalMs = Number(slider.dataset.slideInterval || 45000);
-        const dots = slides.map((_, dotIndex) => {
-            const dot = document.createElement('button');
-            dot.className = 'slide-dot';
-            dot.type = 'button';
-            dot.setAttribute('aria-label', `Go to slide ${dotIndex + 1}`);
-            dot.addEventListener('click', () => show(dotIndex, true));
-            if (dotsWrap) dotsWrap.appendChild(dot);
-            return dot;
-        });
-        function show(nextIndex, userAction = false) {
-            if (!slides.length) return;
-            index = (nextIndex + slides.length) % slides.length;
-            slides.forEach((slide, slideIndex) => slide.classList.toggle('active', slideIndex === index));
-            dots.forEach((dot, dotIndex) => dot.classList.toggle('active', dotIndex === index));
-            if (userAction) restart();
-        }
-        function start() {
-            if (slides.length > 1) timer = window.setInterval(() => show(index + 1), slideIntervalMs);
-        }
-        function stop() {
-            if (timer) window.clearInterval(timer);
-            timer = null;
-        }
-        function restart() { stop(); start(); }
-        if (prev) prev.addEventListener('click', () => show(index - 1, true));
-        if (next) next.addEventListener('click', () => show(index + 1, true));
-        slider.addEventListener('mouseenter', stop);
-        slider.addEventListener('mouseleave', start);
-        show(0);
-        start();
-    });
-    document.querySelectorAll('[data-filter]').forEach((button) => {
-        button.addEventListener('click', () => {
-            const value = button.dataset.filter;
-            document.querySelectorAll('[data-filter]').forEach((item) => item.classList.toggle('active', item === button));
-            document.querySelectorAll('[data-card-type]').forEach((card) => {
-                card.style.display = value === 'all' || card.dataset.cardType === value ? '' : 'none';
-            });
-        });
-    });
-</script>
+<script src="{% static 'webroaster/js/public-site.js' %}" defer></script>
 </body>
 </html>
 
