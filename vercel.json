@@ -11,11 +11,11 @@
   "routes": [
     {
       "src": "/static/webroaster/(.*)",
-      "dest": "/webroaster/static/webroaster/$1"
+      "dest": "webroaster/static/webroaster/$1"
     },
     {
       "src": "/static/newcompany/(.*)",
-      "dest": "/NewCompany/static/newcompany/$1"
+      "dest": "NewCompany/static/newcompany/$1"
     },
     {
       "src": "/static/(.*)",
