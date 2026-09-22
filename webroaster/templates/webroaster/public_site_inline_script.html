@@ -1,0 +1,93 @@
+<script>
+    (function () {
+        const fallbackSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720">
+                <defs>
+                    <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1">
+                        <stop offset="0" stop-color="#dfeaf2"/>
+                        <stop offset="1" stop-color="#f8fbff"/>
+                    </linearGradient>
+                    <linearGradient id="glass" x1="0" x2="1">
+                        <stop offset="0" stop-color="#7890a7"/>
+                        <stop offset="1" stop-color="#243b53"/>
+                    </linearGradient>
+                    <linearGradient id="guard" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#193a5a"/>
+                        <stop offset="1" stop-color="#0f233b"/>
+                    </linearGradient>
+                </defs>
+                <rect width="1200" height="720" fill="url(#sky)"/>
+                <rect x="0" y="500" width="1200" height="220" fill="#cbd6df"/>
+                <rect x="86" y="92" width="520" height="432" rx="18" fill="#eef3f7"/>
+                <rect x="126" y="128" width="120" height="360" fill="url(#glass)"/>
+                <rect x="270" y="128" width="120" height="360" fill="url(#glass)" opacity=".86"/>
+                <rect x="414" y="128" width="120" height="360" fill="url(#glass)" opacity=".72"/>
+                <rect x="86" y="498" width="560" height="24" fill="#9aa9b8"/>
+                <rect x="680" y="126" width="84" height="398" rx="12" fill="#0b1f35" opacity=".22"/>
+                <circle cx="834" cy="210" r="56" fill="#6f4b35"/>
+                <path d="M764 194c24-72 120-72 148 0-46-28-96-28-148 0z" fill="#122b46"/>
+                <rect x="746" y="268" width="178" height="282" rx="34" fill="url(#guard)"/>
+                <rect x="782" y="260" width="102" height="176" fill="#dbe5ec"/>
+                <path d="M746 302h178l-44 136h-90z" fill="#10233f"/>
+                <rect x="700" y="338" width="54" height="190" rx="22" fill="#18344f"/>
+                <rect x="916" y="338" width="54" height="190" rx="22" fill="#18344f"/>
+                <rect x="794" y="548" width="42" height="130" rx="16" fill="#13263d"/>
+                <rect x="856" y="548" width="42" height="130" rx="16" fill="#13263d"/>
+                <circle cx="1012" cy="258" r="38" fill="#6f4b35"/>
+                <path d="M960 248c18-48 84-48 104 0-32-18-68-18-104 0z" fill="#122b46"/>
+                <rect x="960" y="302" width="106" height="188" rx="24" fill="#18344f"/>
+                <rect x="250" y="560" width="660" height="18" rx="9" fill="#7d8b98"/>
+                <rect x="252" y="584" width="278" height="14" rx="7" fill="#b22234"/>
+                <circle cx="660" cy="420" r="18" fill="#0f766e"/>
+                <rect x="650" y="438" width="20" height="72" fill="#0f766e"/>
+                <text x="74" y="650" fill="#10233f" font-family="Arial, Helvetica, sans-serif" font-size="38" font-weight="700">Professional security operations</text>
+            </svg>`;
+        const fallbackSrc = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(fallbackSvg);
+
+        function repairPublicImages() {
+            document.querySelectorAll(".hero-visual img, .service-card img").forEach((image) => {
+                image.addEventListener("error", () => {
+                    if (image.src !== fallbackSrc) {
+                        image.src = fallbackSrc;
+                    }
+                });
+                if (image.complete && image.naturalWidth === 0) {
+                    image.src = fallbackSrc;
+                }
+            });
+        }
+
+        const serviceCopy = {
+            guarding: ["Manned Guarding", "We place trained officers at client premises, track attendance, assign supervisors, and keep site records ready for review.", ["Access control and visitor management", "Day and night shift coverage", "Supervisor checklist and attendance records"]],
+            patrols: ["Mobile Patrols", "Patrol teams and supervisors provide visible follow-up for client sites, including route checks, shift support, and escalation.", ["Scheduled patrol coverage", "Site visit documentation", "Rapid escalation to operations managers"]],
+            response: ["Incident Response", "Incidents are recorded, investigated, reviewed, and escalated with clear reporting for clients and internal managers.", ["Incident notifications", "Investigation reports", "Closure notes and accountability trail"]],
+            assets: ["Asset Protection", "Assigned equipment, site assets, stores, and issued-out items are tracked so responsibility stays visible.", ["Asset assignment reports", "Store accountability", "Vehicle and equipment detail records"]],
+        };
+
+        function bindServiceImages() {
+            const detail = document.querySelector("[data-service-detail]");
+            const tabs = Array.from(document.querySelectorAll("[data-service-tab]"));
+            const cards = Array.from(document.querySelectorAll("[data-service-card]"));
+            function setService(key) {
+                const copy = serviceCopy[key];
+                if (!copy || !detail) return;
+                detail.innerHTML = `<h3>${copy[0]}</h3><p>${copy[1]}</p><ul>${copy[2].map((point) => `<li>${point}</li>`).join("")}</ul>`;
+                tabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.serviceTab === key));
+                cards.forEach((card) => card.classList.toggle("is-active", card.dataset.serviceCard === key));
+            }
+            tabs.forEach((tab) => tab.addEventListener("click", () => setService(tab.dataset.serviceTab)));
+            cards.forEach((card) => card.addEventListener("click", () => setService(card.dataset.serviceCard)));
+            if (detail) setService("guarding");
+        }
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", function () {
+                repairPublicImages();
+                bindServiceImages();
+            });
+        } else {
+            repairPublicImages();
+            bindServiceImages();
+        }
+    })();
+</script>
