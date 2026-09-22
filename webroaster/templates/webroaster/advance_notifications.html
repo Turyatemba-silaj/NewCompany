@@ -5,7 +5,10 @@
 
 {% block content %}
 <div class="topbar">
-    <div><h1>{{ title }}</h1></div>
+    <div>
+        <h1>{{ title }}</h1>
+        <p class="muted">Action salary advance notifications assigned to your verification, approval, or finance role.</p>
+    </div>
     <div class="actions">
         <a class="btn" href="{% url 'webroaster:list' 'advances' %}">Advances</a>
         <a class="btn" href="{% url 'webroaster:home' %}">Dashboard</a>
@@ -33,32 +36,36 @@
                 <td>{{ notification.advance.employee }}</td>
                 <td>UGX {{ notification.advance.amount_requested|thousands }}</td>
                 <td>{{ notification.message }}</td>
-                <td>{{ notification.advance.get_approval_status_display }}</td>
-                        <td>{{ notification.advance.get_verification_status_display }}</td>
-                <td>{{ notification.advance.get_status_display }}</td>
+                <td><span class="status-pill {% if notification.advance.approval_status == 'approved' %}success{% elif notification.advance.approval_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ notification.advance.get_approval_status_display }}</span></td>
+                <td><span class="status-pill {% if notification.advance.verification_status == 'verified' %}success{% elif notification.advance.verification_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ notification.advance.get_verification_status_display }}</span></td>
+                <td><span class="status-pill {% if notification.status == 'actioned' %}success{% else %}pending{% endif %}">{{ notification.get_status_display }}</span></td>
                 <td>{{ notification.notified_at }}</td>
                 <td>
                     {% if notification.can_verify %}
-                    <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'verify' %}">
-                        {% csrf_token %}
-                        <button class="btn primary" type="submit">Verify</button>
-                    </form>
+                    <div class="row-action-group">
+                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'verify' %}">
+                            {% csrf_token %}
+                            <button class="action-btn workflow" type="submit">Verify</button>
+                        </form>
+                    </div>
                     {% elif notification.can_approve %}
-                    <div class="actions">
+                    <div class="row-action-group">
                         <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'approve' %}">
                             {% csrf_token %}
-                            <button class="btn primary" type="submit">Approve</button>
+                            <button class="action-btn workflow" type="submit">Approve</button>
                         </form>
                         <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'reject' %}">
                             {% csrf_token %}
-                            <button class="btn danger" type="submit">Reject</button>
+                            <button class="action-btn danger" type="submit">Reject</button>
                         </form>
                     </div>
                     {% elif notification.can_pay %}
-                    <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'pay' %}">
-                        {% csrf_token %}
-                        <button class="btn primary" type="submit">Pay</button>
-                    </form>
+                    <div class="row-action-group">
+                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'pay' %}">
+                            {% csrf_token %}
+                            <button class="action-btn workflow" type="submit">Pay</button>
+                        </form>
+                    </div>
                     {% else %}
                         {{ notification.decision|default:notification.get_notification_type_display }}
                     {% endif %}

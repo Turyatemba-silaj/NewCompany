@@ -240,6 +240,50 @@ def advance_notification_groups(user):
     return allowed
 
 
+def leave_notification_groups(user):
+    if getattr(user, "is_superuser", False):
+        return None
+    groups = user_group_names(user)
+    if not groups.intersection(ROLE_GROUPS):
+        return None
+    allowed = set()
+    if "Supervisor" in groups or "Operations Manager" in groups:
+        allowed.add("Verifier")
+        allowed.add("Stand-In")
+    if "Human Resources" in groups:
+        allowed.add("Approver")
+    return allowed
+
+
+def employee_for_user(user):
+    if not getattr(user, "is_authenticated", False):
+        return None
+    from .models import Employee
+
+    email_key = (getattr(user, "email", "") or "").strip()
+    username_key = (getattr(user, "username", "") or "").strip()
+    if email_key:
+        employee = Employee.objects.filter(email__iexact=email_key).first()
+        if employee:
+            return employee
+    if username_key:
+        employee = Employee.objects.filter(employee_number__iexact=username_key).first()
+        if employee:
+            return employee
+    return None
+
+
+def notification_actor_for_user(user, notification):
+    if getattr(user, "is_superuser", False):
+        return notification.recipient
+    employee = employee_for_user(user)
+    if employee:
+        return employee if employee.pk == notification.recipient_id else None
+    if user_allowed_views(user) is not None:
+        return None
+    return notification.recipient
+
+
 def can_access_model(user, model_name):
     allowed = user_allowed_models(user)
     return allowed is None or model_name in allowed

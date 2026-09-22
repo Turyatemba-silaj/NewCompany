@@ -593,6 +593,11 @@ class Leave(models.Model):
                 "notified_at": timezone.now(),
             },
         )
+        if not _created and notification.status != "actioned":
+            notification.message = message
+            notification.status = "pending"
+            notification.notified_at = timezone.now()
+            notification.save(update_fields=["message", "status", "notified_at", "updated_at"])
         return notification
 
     def notify_submission(self):

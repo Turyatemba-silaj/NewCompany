@@ -11,7 +11,7 @@ from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import advance_notification_groups, require_model_access, require_view_access
+from .access import advance_notification_groups, employee_for_user, leave_notification_groups, notification_actor_for_user, require_model_access, require_view_access
 from .finance import sync_salary_table
 from .forms_hr import EmployeeDeploymentTransferForm, LeaveReviewForm
 from .models import AdvanceNotification, DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Salary, Training
@@ -360,6 +360,12 @@ def leave_notifications(request):
         "leave__employee",
         "recipient",
     ).order_by("-notified_at", "-notification_id")
+    notification_groups = leave_notification_groups(request.user)
+    if notification_groups is not None:
+        notifications = notifications.filter(recipient_group__in=notification_groups)
+    actor = employee_for_user(request.user)
+    if actor and not request.user.is_superuser:
+        notifications = notifications.filter(recipient=actor)
     context = {
         "title": "Leave Notifications",
         "notifications": notifications,
@@ -374,7 +380,14 @@ def leave_notification_action(request, notification_id, action):
         pk=notification_id,
     )
     leave = notification.leave
-    actor = notification.recipient
+    notification_groups = leave_notification_groups(request.user)
+    if notification_groups is not None and notification.recipient_group not in notification_groups:
+        messages.error(request, "You cannot act on this leave notification.")
+        return redirect("webroaster:leave_notifications")
+    actor = notification_actor_for_user(request.user, notification)
+    if actor is None:
+        messages.error(request, "Only the assigned authorized person can act on this leave notification.")
+        return redirect("webroaster:leave_notifications")
 
     if request.method != "POST":
         return redirect("webroaster:leave_notifications")
@@ -390,6 +403,8 @@ def leave_notification_action(request, notification_id, action):
         leave.operations_verified_at = now
         leave.save(update_fields=["operations_verification_status", "verified_by", "operations_feedback", "operations_verified_at", "updated_at"])
         leave.notify(leave.employee, "Requester", "leave_verified", f"Your leave request from {leave.start_date} to {leave.end_date} has been verified.")
+        for approver in [leave.hod, leave.hr_verifier]:
+            leave.notify(approver, "Approver", "approval_requested", f"{leave.employee}'s leave request from {leave.start_date} to {leave.end_date} has been verified and is ready for approval.")
         messages.success(request, "Leave request verified.")
     elif action == "approve":
         if not notification.can_approve:
@@ -439,6 +454,9 @@ def advance_notifications(request):
     notification_groups = advance_notification_groups(request.user)
     if notification_groups is not None:
         notifications = notifications.filter(recipient_group__in=notification_groups)
+    actor = employee_for_user(request.user)
+    if actor and not request.user.is_superuser:
+        notifications = notifications.filter(recipient=actor)
     return render_page(request, "webroaster/advance_notifications.html", {
         "title": "Salary Advance Notifications",
         "notifications": notifications,
@@ -454,6 +472,10 @@ def advance_notification_action(request, notification_id, action):
     notification_groups = advance_notification_groups(request.user)
     if notification_groups is not None and notification.recipient_group not in notification_groups:
         messages.error(request, "You cannot act on this advance notification.")
+        return redirect("webroaster:advance_notifications")
+    actor = notification_actor_for_user(request.user, notification)
+    if actor is None:
+        messages.error(request, "Only the assigned authorized person can act on this advance notification.")
         return redirect("webroaster:advance_notifications")
     if request.method != "POST":
         return redirect("webroaster:advance_notifications")
@@ -473,7 +495,7 @@ def advance_notification_action(request, notification_id, action):
     with transaction.atomic():
         if action == "verify":
             advance.verification_status = "verified"
-            advance.verified_by = notification.recipient
+            advance.verified_by = actor
             advance.verified_at = now
             advance.save(update_fields=["verification_status", "verified_by", "verified_at", "updated_at"])
             advance.notify_hr_for_approval()
@@ -483,7 +505,7 @@ def advance_notification_action(request, notification_id, action):
             advance.approval_status = "approved"
             advance.status = "disbursed"
             advance.disbursement_date = advance.disbursement_date or timezone.localdate()
-            advance.approved_by = notification.recipient
+            advance.approved_by = actor
             advance.save(update_fields=["approval_status", "status", "disbursement_date", "approved_by", "updated_at"])
             advance.refresh_payroll()
             notification_type = "advance_approved"
@@ -498,7 +520,7 @@ def advance_notification_action(request, notification_id, action):
         elif action == "reject":
             advance.approval_status = "rejected"
             advance.status = "rejected"
-            advance.approved_by = notification.recipient
+            advance.approved_by = actor
             advance.save(update_fields=["approval_status", "status", "approved_by", "updated_at"])
             notification_type = "advance_rejected"
             outcome = "rejected"

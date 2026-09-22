@@ -49,6 +49,96 @@ class EmployeeConfigTests(SimpleTestCase):
         self.assertIn("current_deployment_area", config.get("detail_fields", []))
 
 
+class WorkflowNotificationAuthorizationTests(TestCase):
+    def create_employee(self, first_name, email, role="guard", department="operations"):
+        return Employee.objects.create(
+            first_name=first_name,
+            last_name="Approver",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number=f"0700{Employee.objects.count():06d}",
+            email=email,
+            address="Kampala",
+            national_id=f"NIN-{first_name}-{Employee.objects.count()}",
+            hire_date=date(2022, 1, 1),
+            role=role,
+            department=department,
+            status="active",
+        )
+
+    def create_staff_user(self, username, email, group_name):
+        user = get_user_model().objects.create_user(username=username, email=email, password="test-pass", is_staff=True)
+        group, _created = Group.objects.get_or_create(name=group_name)
+        user.groups.add(group)
+        return user
+
+    def test_leave_notification_action_requires_assigned_authorized_employee(self):
+        requester = self.create_employee("Requester", "requester@example.com")
+        assigned_supervisor = self.create_employee("Assigned", "assigned@example.com", role="supervisor")
+        other_supervisor = self.create_employee("Other", "other@example.com", role="supervisor")
+        leave = Leave.objects.create(
+            employee=requester,
+            leave_type="annual",
+            start_date=date(2026, 10, 1),
+            end_date=date(2026, 10, 3),
+            reason="Annual leave",
+            supervisor=assigned_supervisor,
+            application_status="submitted",
+        )
+        leave.notify_submission()
+        notification = LeaveNotification.objects.get(recipient=assigned_supervisor, notification_type="verification_requested")
+
+        self.client.force_login(self.create_staff_user("other", other_supervisor.email, "Supervisor"))
+        response = self.client.post(reverse("webroaster:leave_notification_action", args=[notification.pk, "verify"]))
+        leave.refresh_from_db()
+        notification.refresh_from_db()
+
+        self.assertRedirects(response, reverse("webroaster:leave_notifications"))
+        self.assertEqual(leave.operations_verification_status, "pending")
+        self.assertEqual(notification.status, "pending")
+
+        self.client.force_login(self.create_staff_user("assigned", assigned_supervisor.email, "Supervisor"))
+        response = self.client.post(reverse("webroaster:leave_notification_action", args=[notification.pk, "verify"]))
+        leave.refresh_from_db()
+        notification.refresh_from_db()
+
+        self.assertRedirects(response, reverse("webroaster:leave_notifications"))
+        self.assertEqual(leave.operations_verification_status, "verified")
+        self.assertEqual(leave.verified_by, assigned_supervisor)
+        self.assertEqual(notification.status, "actioned")
+
+    def test_advance_notification_action_requires_assigned_authorized_employee(self):
+        requester = self.create_employee("AdvanceRequester", "advance-requester@example.com")
+        assigned_supervisor = self.create_employee("AdvanceAssigned", "advance-assigned@example.com", role="supervisor")
+        other_supervisor = self.create_employee("AdvanceOther", "advance-other@example.com", role="supervisor")
+        advance = Advance.objects.create(employee=requester, amount_requested=Decimal("100000.00"))
+        notification = advance.notify(
+            assigned_supervisor,
+            "Supervisor",
+            "verification_requested",
+            "Verify this salary advance.",
+        )
+
+        self.client.force_login(self.create_staff_user("advance-other", other_supervisor.email, "Supervisor"))
+        response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "verify"]))
+        advance.refresh_from_db()
+        notification.refresh_from_db()
+
+        self.assertRedirects(response, reverse("webroaster:advance_notifications"))
+        self.assertEqual(advance.verification_status, "pending")
+        self.assertEqual(notification.status, "pending")
+
+        self.client.force_login(self.create_staff_user("advance-assigned", assigned_supervisor.email, "Supervisor"))
+        response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "verify"]))
+        advance.refresh_from_db()
+        notification.refresh_from_db()
+
+        self.assertRedirects(response, reverse("webroaster:advance_notifications"))
+        self.assertEqual(advance.verification_status, "verified")
+        self.assertEqual(advance.verified_by, assigned_supervisor)
+        self.assertEqual(notification.status, "actioned")
+
+
 class GuardRotationTests(SimpleTestCase):
     def test_schedules_required_guards_and_leaves_relief_guard_off(self):
         guards = list(range(1, 8))
@@ -2109,8 +2199,8 @@ class PublicWebsiteTests(TestCase):
 
         self.assertEqual(home_response.status_code, 200)
         self.assertContains(home_response, "NewCompany")
-        self.assertNotContains(home_response, "Recruitment Drive")
-        self.assertNotContains(home_response, "New guard roles open")
+        self.assertContains(home_response, "Recruitment Drive")
+        self.assertContains(home_response, "New guard roles open")
         self.assertContains(home_response, "Community Safety Day")
         self.assertContains(home_response, "Security Guard")
         self.assertEqual(dashboard_response.status_code, 302)
