@@ -1,4 +1,6 @@
 from datetime import timedelta
+import base64
+import mimetypes
 from io import BytesIO
 import mimetypes
 
@@ -107,6 +109,7 @@ def employee_profile_context(employee):
     return {
         "title": f"Employee Profile - {employee}",
         "employee": employee,
+        "passport_photo_src": employee_passport_photo_src(employee),
         "details": details,
         "documents": Document.objects.filter(employee=employee).order_by("doc_type", "expiry_date", "-created_at")[:8],
         "trainings": Training.objects.filter(employee=employee).order_by("-start_date", "-training_id")[:5],
@@ -114,6 +117,21 @@ def employee_profile_context(employee):
         "salaries": Salary.objects.filter(employee=employee).order_by("-pay_period", "-salary_id")[:5],
         "deployment_areas": employee.deployment_areas.select_related("region", "transferred_by_hr_manager").order_by("-start_date", "-deployment_area_id")[:5],
     }
+
+
+def employee_passport_photo_src(employee):
+    if not employee.passport_photo:
+        return ""
+    name = employee.passport_photo.name or ""
+    content_type = mimetypes.guess_type(name)[0] or "image/jpeg"
+    if not content_type.startswith("image/"):
+        return employee.passport_photo.url
+    try:
+        with employee.passport_photo.open("rb") as photo_file:
+            encoded = base64.b64encode(photo_file.read()).decode("ascii")
+    except Exception:
+        return employee.passport_photo.url
+    return f"data:{content_type};base64,{encoded}"
 
 
 def employee_profile(request, pk):

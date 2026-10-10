@@ -147,7 +147,7 @@
 <div class="employee-profile-head">
     <div class="employee-photo-panel">
         {% if employee.passport_photo %}
-            <img class="employee-photo" src="{{ employee.passport_photo.url }}" alt="{{ employee }} passport photo">
+            <img class="employee-photo" src="{{ passport_photo_src }}" alt="{{ employee }} passport photo">
         {% else %}
             <div class="employee-photo-placeholder" aria-label="No passport photo">
                 {{ employee.first_name|slice:":1" }}{{ employee.last_name|slice:":1" }}

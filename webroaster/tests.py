@@ -94,6 +94,37 @@ class EmployeePhotoUploadTests(TestCase):
             self.assertTrue(employee.passport_photo.name.startswith("employee_photos/"))
             self.assertTrue(employee.passport_photo.storage.exists(employee.passport_photo.name))
 
+    def test_employee_profile_displays_passport_photo(self):
+        upload = SimpleUploadedFile(
+            "passport.jpg",
+            b"fake image bytes",
+            content_type="image/jpeg",
+        )
+        employee = Employee.objects.create(
+            first_name="Profile",
+            last_name="Photo",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0777654321",
+            email="profile.photo@example.com",
+            address="Kampala",
+            national_id="NIN-PROFILE-PHOTO",
+            role="manager",
+            position="operations_officer",
+            department="operations",
+            hire_date=date(2026, 10, 10),
+            status="active",
+        )
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            employee.passport_photo.save("passport.jpg", upload)
+            login_test_staff(self.client, "profile-photo-staff")
+            response = self.client.get(f"/employees/{employee.pk}/profile/")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'class="employee-photo"')
+            self.assertContains(response, "data:image/jpeg;base64,")
+
 
 class WorkflowNotificationAuthorizationTests(TestCase):
     def create_employee(self, first_name, email, role="guard", department="operations"):
