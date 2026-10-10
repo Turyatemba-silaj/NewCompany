@@ -572,12 +572,12 @@ def build_department_cards(user=None):
                 continue
             if item_name in MODULE_GROUPS:
                 group = MODULE_GROUPS[item_name]
-                count = sum(get_config(child_name)["model"].objects.count() for child_name in group["items"])
+                count = sum(safe_model_count(get_config(child_name)["model"]) for child_name in group["items"])
                 title = group["title"]
                 icon = group["icon"]
             else:
                 config = get_config(item_name)
-                count = config["model"].objects.count()
+                count = safe_model_count(config["model"])
                 title = config["title"]
                 icon = config["icon"]
             total += count
@@ -587,6 +587,12 @@ def build_department_cards(user=None):
     return departments
 
 
+
+def safe_model_count(model):
+    try:
+        return model.objects.count()
+    except DatabaseError:
+        return 0
 
 
 

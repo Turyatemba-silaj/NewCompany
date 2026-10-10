@@ -12,7 +12,12 @@ try:
             from django.core.management import call_command
 
             django.setup()
-            call_command("migrate", interactive=False, verbosity=0)
+            try:
+                call_command("migrate", interactive=False, verbosity=0)
+            except Exception:
+                if os.environ.get("DJANGO_AUTO_MIGRATE_STRICT", "0").lower() in {"1", "true", "yes", "on"}:
+                    raise
+                traceback.print_exc()
 
     from NewCompany.wsgi import application
 except Exception as exc:
