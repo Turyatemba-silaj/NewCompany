@@ -24,6 +24,6 @@ urlpatterns = [
     path('', include('webroaster.urls')),
 ]
 
-if settings.DEBUG:
+if settings.DEBUG or settings.IS_VERCEL_RUNTIME:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static('/demo/', document_root=settings.MEDIA_ROOT / 'demo')

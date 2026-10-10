@@ -1,4 +1,5 @@
 ﻿from django import forms
+from django.db.models import Q
 from django.forms import inlineformset_factory
 
 from .forms_base import DATE_WIDGET, DateRangeValidationMixin, StyledModelForm
@@ -81,8 +82,13 @@ class ExpenseForm(StyledModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if "budget" in self.fields:
-            self.fields["budget"].queryset = Budget.objects.filter(approval_status="approved").order_by("budget_title")
-            self.fields["budget"].label_from_instance = self.format_approved_budget
+            budget_filter = Q(approval_status="approved")
+            if self.instance and self.instance.budget_id:
+                budget_filter |= Q(pk=self.instance.budget_id)
+            self.fields["budget"].required = True
+            self.fields["budget"].empty_label = "Select budget"
+            self.fields["budget"].queryset = Budget.objects.filter(budget_filter).order_by("-fiscal_year", "department", "budget_title")
+            self.fields["budget"].label_from_instance = self.format_budget_option
         for field_name in ("requested_by", "verified_by", "approved_by", "spent_by"):
             if field_name in self.fields:
                 self.fields[field_name].queryset = Employee.objects.filter(status="active").order_by("employee_number", "first_name", "last_name")
@@ -90,8 +96,14 @@ class ExpenseForm(StyledModelForm):
             self.fields["recorded_at"].required = False
 
     @staticmethod
-    def format_approved_budget(budget):
-        return f"{budget.budget_title} - {budget.allocated_amount:,.2f} - {budget.remaining_amount:,.2f}"
+    def format_budget_option(budget):
+        budget_code = budget.budget_code or f"BUD-{budget.fiscal_year}-{budget.pk or 'new'}"
+        return (
+            f"{budget_code} | {budget.budget_title} | {budget.get_department_display()} | "
+            f"Allocated: {budget.allocated_amount:,.2f} | "
+            f"Spent: {budget.spent_amount:,.2f} | "
+            f"Remaining: {budget.remaining_amount:,.2f}"
+        )
 
 
 class BudgetForm(StyledModelForm):

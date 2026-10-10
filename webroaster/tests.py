@@ -1,22 +1,24 @@
 ﻿import csv
 import io
+from tempfile import TemporaryDirectory
 from datetime import date, time, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.forms import modelformset_factory
 from django.http import HttpResponse
-from django.test import RequestFactory, SimpleTestCase, TestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
 from .finance import salary_payslip_context
 from .forms_finance import AdvanceForm, ExpenseForm, InvoiceForm
 from .views import get_config
-from .forms_hr import DisciplinaryActionForm, PerformanceEvaluationForm
+from .forms_hr import DisciplinaryActionForm, EmployeeForm, PerformanceEvaluationForm
 from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
 from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
@@ -48,6 +50,49 @@ class EmployeeConfigTests(SimpleTestCase):
         self.assertNotIn("deployment_area", config.get("detail_fields", []))
         self.assertIn("current_deployment_area", config.get("fields", []))
         self.assertIn("current_deployment_area", config.get("detail_fields", []))
+
+
+class EmployeePhotoUploadTests(TestCase):
+    def test_employee_form_saves_passport_photo(self):
+        upload = SimpleUploadedFile(
+            "passport.jpg",
+            b"fake image bytes",
+            content_type="image/jpeg",
+        )
+        data = {
+            "first_name": "Photo",
+            "last_name": "Upload",
+            "date_of_birth": "1990-01-01",
+            "gender": "M",
+            "phone_number": "0777123456",
+            "email": "photo.upload@example.com",
+            "address": "Kampala",
+            "national_id": "NIN-PHOTO-UPLOAD",
+            "nssf_number": "",
+            "role": "manager",
+            "position": "operations_officer",
+            "department": "operations",
+            "qualification": "",
+            "hire_date": "2026-10-10",
+            "status": "active",
+            "is_reliever": "",
+            "payout_method": "mobile_money",
+            "bank_name": "",
+            "bank_account_name": "",
+            "bank_account_number": "",
+            "mobile_money_provider": "",
+            "mobile_money_number": "",
+            "deployment_area": "",
+        }
+
+        with TemporaryDirectory() as media_root, override_settings(MEDIA_ROOT=media_root):
+            form = EmployeeForm(data=data, files={"passport_photo": upload})
+
+            self.assertTrue(form.is_valid(), form.errors)
+            employee = form.save()
+
+            self.assertTrue(employee.passport_photo.name.startswith("employee_photos/"))
+            self.assertTrue(employee.passport_photo.storage.exists(employee.passport_photo.name))
 
 
 class WorkflowNotificationAuthorizationTests(TestCase):
@@ -2154,6 +2199,41 @@ class BudgetAccountabilityTests(TestCase):
         self.assertContains(response, "Edit Budgets")
         self.assertContains(response, "Operations Fuel")
 
+    def test_budget_table_displays_spent_amount_from_linked_expense(self):
+        finance = self.make_employee("finance_officer", 14)
+        requester = self.make_employee("manager", 15)
+        budget = Budget.objects.create(
+            budget_title="Uniform Budget",
+            department="operations",
+            budget_category="other",
+            fiscal_year=2026,
+            requested_amount=Decimal("300000.00"),
+            allocated_amount=Decimal("300000.00"),
+            requested_by=requester,
+            verified_by=finance,
+            approved_by=finance,
+            verification_status="verified",
+            approval_status="approved",
+        )
+        Expense.objects.create(
+            budget=budget,
+            requisition_title="uniform",
+            category="other",
+            requested_amount=Decimal("300000.00"),
+            amount=Decimal("300000.00"),
+            expense_date=date(2026, 10, 9),
+            payment_method="cash",
+            description="Uniform purchase.",
+            spent_by=requester,
+        )
+
+        login_test_staff(self.client)
+        response = self.client.get("/budgets/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Uniform Budget")
+        self.assertContains(response, "300,000.00")
+
     def test_expense_form_only_picks_approved_budgets_from_budget_table(self):
         finance = self.make_employee("finance_officer", 9)
         approved_budget = Budget.objects.create(
@@ -2184,10 +2264,11 @@ class BudgetAccountabilityTests(TestCase):
 
         self.assertIn(approved_budget.pk, budget_ids)
         self.assertNotIn(pending_budget.pk, budget_ids)
+        self.assertTrue(form.fields["budget"].required)
         self.assertIn("Approved Fuel", approved_label)
-        self.assertIn("250,000.00 - 250,000.00", approved_label)
-        self.assertNotIn("Allocated", approved_label)
-        self.assertNotIn("Remaining", approved_label)
+        self.assertIn("Allocated: 250,000.00", approved_label)
+        self.assertIn("Spent: 0.00", approved_label)
+        self.assertIn("Remaining: 250,000.00", approved_label)
 
     def test_expense_form_uses_active_verifier_and_approver_dropdowns(self):
         budget_verifier = self.make_employee("finance_officer", 10)
