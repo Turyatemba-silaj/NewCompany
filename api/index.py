@@ -6,7 +6,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "NewCompany.settings")
 try:
     from django.conf import settings
 
-    if os.environ.get("VERCEL") and os.environ.get("DJANGO_AUTO_MIGRATE", "1").lower() not in {"0", "false", "no", "off"}:
+    if os.environ.get("VERCEL") and os.environ.get("DJANGO_AUTO_MIGRATE", "0").lower() in {"1", "true", "yes", "on"}:
         if not getattr(settings, "VERCEL_CONFIGURATION_ERRORS", []):
             import django
             from django.core.management import call_command

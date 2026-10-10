@@ -14,6 +14,8 @@ from .models import (
     InvoiceBillableItemPrice,
     Paymee,
     PayrollDeduction,
+    PayrollPeriod,
+    PayrollRun,
     Payment,
     ProcurementApproval,
     ProcurementRequisition,
@@ -40,6 +42,22 @@ class PayrollDeductionForm(StyledModelForm):
         model = PayrollDeduction
         fields = "__all__"
         widgets = {"start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
+
+
+class PayrollPeriodForm(DateRangeValidationMixin, StyledModelForm):
+    start_date_field = "start_date"
+    end_date_field = "end_date"
+
+    class Meta:
+        model = PayrollPeriod
+        fields = "__all__"
+        widgets = {"start_date": DATE_WIDGET, "end_date": DATE_WIDGET}
+
+
+class PayrollRunForm(StyledModelForm):
+    class Meta:
+        model = PayrollRun
+        fields = "__all__"
 
 
 class AdvanceForm(StyledModelForm):

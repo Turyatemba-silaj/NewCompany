@@ -4,12 +4,14 @@ from django.db import DatabaseError, transaction
 from django.db.models import Case, IntegerField, Q, When
 from django.utils import timezone
 
-from .forms_base import DATE_WIDGET, DateRangeValidationMixin, StyledModelForm
+from .forms_base import DATE_WIDGET, DATETIME_WIDGET, DateRangeValidationMixin, StyledModelForm
 from .models import (
     DeploymentArea,
     Disciplinary_Action,
     Document,
     Employee,
+    EmployeeComplianceRecord,
+    ExitClearance,
     Guard,
     Leave,
     Performance_Evaluation,
@@ -313,4 +315,18 @@ class DocumentForm(StyledModelForm):
         model = Document
         fields = "__all__"
         widgets = {"expiry_date": DATE_WIDGET}
+
+
+class EmployeeComplianceRecordForm(StyledModelForm):
+    class Meta:
+        model = EmployeeComplianceRecord
+        fields = "__all__"
+        widgets = {"issued_date": DATE_WIDGET, "expiry_date": DATE_WIDGET}
+
+
+class ExitClearanceForm(StyledModelForm):
+    class Meta:
+        model = ExitClearance
+        fields = "__all__"
+        widgets = {"clearance_date": DATE_WIDGET, "cleared_at": DATETIME_WIDGET}
 

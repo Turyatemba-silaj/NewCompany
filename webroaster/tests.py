@@ -6,6 +6,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
+from django.core.management import call_command
 from django.forms import modelformset_factory
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase
@@ -18,7 +19,7 @@ from .views import get_config
 from .forms_hr import DisciplinaryActionForm, PerformanceEvaluationForm
 from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
-from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
+from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
 from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
 
@@ -205,8 +206,119 @@ class DutyRosterMatrixTests(TestCase):
         for work_date in dates:
             markers = [row["markers"][work_date] for row in rows]
             self.assertEqual(markers.count("D"), 3)
-            self.assertEqual(markers.count("N"), 3)
-            self.assertEqual(markers.count("O"), 1)
+        self.assertEqual(markers.count("N"), 3)
+        self.assertEqual(markers.count("O"), 1)
+
+
+class DeploymentAutomationTests(TestCase):
+    def create_guard(self, name, region):
+        guard = Employee.objects.create(
+            first_name=name,
+            last_name="Guard",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number=f"070{name[:3]}{Employee.objects.count():05d}",
+            email=f"{name.lower()}@example.com",
+            address="Kampala",
+            national_id=f"NIN-AUTO-{name}-{Employee.objects.count()}",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 1, 1), status="active")
+        return guard
+
+    def test_deployment_form_generates_roster_assignments_and_expected_attendance(self):
+        region = Region.objects.create(region_name="Automation Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Automation Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=1,
+        )
+        day_guard = self.create_guard("AutoDay", region)
+        night_guard = self.create_guard("AutoNight", region)
+
+        form = DeploymentForm(
+            data={
+                "site": site.pk,
+                "shift_type": "day_night",
+                "day_guards": [day_guard.pk],
+                "night_guards": [night_guard.pk],
+                "start_date": "2026-02-01",
+                "end_date": "2026-02-02",
+                "status": "active",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        deployment = form.save()
+
+        self.assertEqual(RosterAssignment.objects.filter(deployment=deployment).count(), 4)
+        self.assertEqual(Attendance.objects.filter(deployment=deployment, attendance_source="deployment_roster").count(), 4)
+        self.assertEqual(Attendance.objects.filter(deployment=deployment, present=False).count(), 4)
+
+    def test_deployment_generates_scheduled_patrol_sessions_for_active_routes(self):
+        region = Region.objects.create(region_name="Patrol Automation Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Patrol Automation Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        guard = self.create_guard("PatrolDay", region)
+        route = PatrolRoute.objects.create(site=site, route_name="Main route", required_frequency_minutes=60, is_active=True)
+        PatrolCheckpoint.objects.create(route=route, checkpoint_name="Gate", sequence=1, is_active=True)
+
+        form = DeploymentForm(
+            data={
+                "site": site.pk,
+                "shift_type": "day",
+                "day_guards": [guard.pk],
+                "night_guards": [],
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-01",
+                "status": "active",
+            }
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.assertEqual(PatrolSession.objects.filter(route=route, site=site, status="scheduled").count(), 11)
+
+    def test_checkpoint_visit_completes_session_when_all_checkpoints_are_visited(self):
+        region = Region.objects.create(region_name="Checkpoint Region")
+        site = Site.objects.create(region=region, site_name="Checkpoint Site", site_address="Kampala")
+        guard = self.create_guard("VisitGuard", region)
+        route = PatrolRoute.objects.create(site=site, route_name="Short route", required_frequency_minutes=30, is_active=True)
+        checkpoint = PatrolCheckpoint.objects.create(route=route, checkpoint_name="Reception", sequence=1, is_active=True)
+        session = PatrolSession.objects.create(route=route, site=site, started_at=timezone.now(), status="scheduled")
+
+        PatrolCheckpointVisit.objects.create(session=session, checkpoint=checkpoint, visited_by=guard, verification_method="manual")
+        session.refresh_from_db()
+
+        self.assertEqual(session.status, "completed")
+        self.assertIsNotNone(session.completed_at)
+
+    def test_mark_missed_patrols_command_marks_overdue_incomplete_sessions(self):
+        region = Region.objects.create(region_name="Missed Patrol Region")
+        site = Site.objects.create(region=region, site_name="Missed Patrol Site", site_address="Kampala")
+        route = PatrolRoute.objects.create(site=site, route_name="Overdue route", required_frequency_minutes=15, is_active=True)
+        PatrolCheckpoint.objects.create(route=route, checkpoint_name="Warehouse", sequence=1, is_active=True)
+        session = PatrolSession.objects.create(
+            route=route,
+            site=site,
+            started_at=timezone.now() - timedelta(hours=2),
+            status="scheduled",
+        )
+
+        call_command("mark_missed_patrols")
+        session.refresh_from_db()
+
+        self.assertEqual(session.status, "missed")
 
     def test_export_layout_matches_monthly_roster_format(self):
         region = Region.objects.get(region_name="Central Three")

@@ -46,10 +46,13 @@ def first_env_value(*names):
 
 
 PLACEHOLDER_DATABASE_HOSTS = {"host", "hostname", "example.com", "localhost.localdomain"}
+REDACTED_ENV_VALUES = {"[SENSITIVE]", "SENSITIVE", "***", "*****"}
 
 
 def clean_database_url(value):
     value = value.strip().strip("'\"")
+    if value in REDACTED_ENV_VALUES:
+        return ""
     match = re.search(r"(?:postgres|postgresql)://[^\s'\"]+", value)
     if match:
         value = match.group(0)
@@ -84,19 +87,22 @@ def database_url_requires_ssl(database_url):
 
 
 def fallback_database_config():
-    if DEBUG:
-        return {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
-            "USER": os.environ.get("POSTGRES_USER", "postgres"),
-            "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
-            "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-            "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        }
     return {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("SQLITE_FALLBACK_PATH", "/tmp/newcompany-config-error.sqlite3"),
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
+        "USER": os.environ.get("POSTGRES_USER", "postgres"),
+        "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
+        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
+        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
+
+
+def database_configuration_error():
+    return (
+        "Set DATABASE_URL to the same hosted PostgreSQL database used by the live data. "
+        "Vercel cannot read a database that only exists on this computer or localhost; "
+        "export the local data to hosted PostgreSQL, then set that connection string in Vercel."
+    )
 
 
 # Quick-start development settings - unsuitable for production
@@ -198,12 +204,11 @@ if DATABASE_URL:
         if env_bool("DJANGO_STARTUP_DEBUG", False):
             VERCEL_CONFIGURATION_ERRORS.append(f"DATABASE_URL parse error: {exc}")
 else:
-    # Local development PostgreSQL
+    # Local development PostgreSQL. Production must provide DATABASE_URL so Vercel
+    # serves the same hosted data instead of an empty temporary database.
     DATABASES = {"default": fallback_database_config()}
     if not DEBUG:
-        VERCEL_CONFIGURATION_ERRORS.append(
-            "Set DATABASE_URL to a hosted PostgreSQL database, or provide a supported Postgres URL env var."
-        )
+        VERCEL_CONFIGURATION_ERRORS.append(database_configuration_error())
 
 
 # Password validation

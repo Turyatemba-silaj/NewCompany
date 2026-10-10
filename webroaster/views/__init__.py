@@ -26,6 +26,8 @@ from webroaster.forms_finance import (
     PaymentForm,
     PaymeeForm,
     PayrollDeductionForm,
+    PayrollPeriodForm,
+    PayrollRunForm,
     ProcurementApprovalForm,
     ProcurementRequisitionForm,
     PurchaseOrderForm,
@@ -40,6 +42,8 @@ from webroaster.forms_hr import (
     DisciplinaryActionForm,
     DocumentForm,
     EmployeeForm,
+    EmployeeComplianceRecordForm,
+    ExitClearanceForm,
     GuardForm,
     LeaveForm,
     PerformanceEvaluationForm,
@@ -56,11 +60,21 @@ from webroaster.forms_operations import (
     ContractForm,
     DeploymentAreaForm,
     DeploymentForm,
+    GuardPresenceVerificationForm,
     IncidentForm,
     PatrolLogForm,
+    PatrolCheckpointForm,
+    PatrolCheckpointVisitForm,
+    PatrolRouteForm,
+    PatrolSessionForm,
     RegionForm,
+    RosterAssignmentForm,
+    RosterForm,
     ShiftForm,
     SiteForm,
+    SitePostForm,
+    SiteRiskAssessmentForm,
+    SupervisorVisitForm,
 )
 from webroaster.forms_public import AssociatedLinkForm, CompanyEventForm, JobApplicationForm, JobPostingForm, WebsiteAdvertisementForm, WebsiteResourceForm
 from webroaster.access import (
@@ -74,6 +88,8 @@ from webroaster.access import (
 from webroaster.models import (
     Advance,
     AuditLog,
+    Notification,
+    WorkflowAction,
     UserPasswordProfile,
     Asset,
     AssetAssignment,
@@ -85,6 +101,9 @@ from webroaster.models import (
     ContractDeliverable,
     Deployment,
     DeploymentArea,
+    EmployeeComplianceRecord,
+    ExitClearance,
+    GuardPresenceVerification,
     Region,
     Disciplinary_Action,
     DisciplinaryNotification,
@@ -106,8 +125,14 @@ from webroaster.models import (
     InvoiceBillableItemPrice,
     Leave,
     Patrol_Log,
+    PatrolCheckpoint,
+    PatrolCheckpointVisit,
+    PatrolRoute,
+    PatrolSession,
     Paymee,
     PayrollDeduction,
+    PayrollPeriod,
+    PayrollRun,
     Payment,
     Supplier,
     ProcurementRequisition,
@@ -126,8 +151,14 @@ from webroaster.models import (
     Salary,
     Shift,
     Site,
+    SitePost,
+    SiteRiskAssessment,
     Supervisor,
+    SupervisorVisit,
     Training,
+    Roster,
+    RosterAssignment,
+    ClientUserAccess,
 )
 
 
@@ -187,18 +218,32 @@ MODEL_CONFIGS = {
     "patrol-logs": {"model": Patrol_Log, "form": PatrolLogForm, "title": "Patrol Logs", "icon": "PL", "fields": ["site", "patrol_date", "patrol_route", "quantity", "duration"]},
     "deployments": {"model": Deployment, "form": DeploymentForm, "title": "Deployments", "icon": "DP", "fields": ["client", "site", "shift_summary", "day_guards_summary", "night_guards_summary", "start_date", "end_date", "status"], "entry_fields": ["client", "site", "shift_type", "day_guards", "night_guards", "start_date", "end_date", "status"], "required_only": False},
     "deployment-areas": {"model": DeploymentArea, "form": DeploymentAreaForm, "title": "Deployment Areas", "icon": "DA", "fields": ["employee", "region", "start_date", "end_date", "status", "transferred_by_hr_manager"], "detail_fields": ["deployment_area_id", "employee", "region", "start_date", "end_date", "status", "transferred_by_hr_manager", "transfer_notes"], "entry_fields": ["employee", "region", "start_date", "end_date", "status", "transferred_by_hr_manager", "transfer_notes"], "required_only": False},
+    "rosters": {"model": Roster, "form": RosterForm, "title": "Rosters", "icon": "RS", "fields": ["period_start", "period_end", "deployment_area", "status", "prepared_by", "approved_by"], "required_only": False},
+    "roster-assignments": {"model": RosterAssignment, "form": RosterAssignmentForm, "title": "Roster Assignments", "icon": "RA", "fields": ["roster", "guard", "site", "post", "shift", "date", "assignment_type", "status"], "required_only": False},
+    "supervisor-visits": {"model": SupervisorVisit, "form": SupervisorVisitForm, "title": "Supervisor Visits", "icon": "SV", "fields": ["site", "supervisor", "visit_started_at", "visit_completed_at", "status"], "required_only": False},
+    "guard-verifications": {"model": GuardPresenceVerification, "form": GuardPresenceVerificationForm, "title": "Guard Verifications", "icon": "GV", "fields": ["supervisor_visit", "guard", "site", "shift", "verified_at", "verification_method", "status"], "required_only": False},
+    "site-posts": {"model": SitePost, "form": SitePostForm, "title": "Site Posts", "icon": "SP", "fields": ["site", "post_name", "required_day_guards", "required_night_guards", "is_active"], "required_only": False},
+    "site-risk-assessments": {"model": SiteRiskAssessment, "form": SiteRiskAssessmentForm, "title": "Site Risk Assessments", "icon": "SR", "fields": ["site", "assessed_by", "assessment_date", "risk_level", "next_review_date"], "required_only": False},
+    "patrol-routes": {"model": PatrolRoute, "form": PatrolRouteForm, "title": "Patrol Routes", "icon": "PR", "fields": ["site", "route_name", "required_frequency_minutes", "is_active"], "required_only": False},
+    "patrol-checkpoints": {"model": PatrolCheckpoint, "form": PatrolCheckpointForm, "title": "Patrol Checkpoints", "icon": "PC", "fields": ["route", "checkpoint_name", "sequence", "is_active"], "required_only": False},
+    "patrol-sessions": {"model": PatrolSession, "form": PatrolSessionForm, "title": "Patrol Sessions", "icon": "PS", "fields": ["route", "site", "started_by", "started_at", "completed_at", "status", "missed_checkpoints"], "required_only": False},
+    "patrol-checkpoint-visits": {"model": PatrolCheckpointVisit, "form": PatrolCheckpointVisitForm, "title": "Checkpoint Visits", "icon": "CV", "fields": ["session", "checkpoint", "visited_by", "visited_at", "verification_method"], "required_only": False},
     "roles": {"model": Role, "form": RoleForm, "title": "Roles", "icon": "RO", "fields": ["role_name", "department", "description"]},
     "positions": {"model": Position, "form": PositionForm, "title": "Positions", "icon": "PO", "fields": ["position_title", "department", "grade_level", "salary_range_min", "salary_range_max"]},
     "employees": {"model": Employee, "form": EmployeeForm, "title": "Employees", "icon": "EM", "fields": ["employee_id", "employee_number", "first_name", "last_name", "role", "position", "department", "current_deployment_area", "daily_rate", "is_reliever", "status"], "detail_fields": ["employee_id", "employee_number", "first_name", "last_name", "passport_photo", "date_of_birth", "gender", "phone_number", "email", "address", "national_id", "nssf_number", "role", "position", "department", "current_deployment_area", "daily_rate", "is_reliever", "payout_method", "bank_name", "bank_account_name", "bank_account_number", "mobile_money_provider", "mobile_money_number", "qualification", "hire_date", "status"], "entry_fields": ["first_name", "last_name", "passport_photo", "date_of_birth", "gender", "phone_number", "email", "address", "national_id", "role", "position", "department", "hire_date", "is_reliever", "payout_method", "bank_name", "bank_account_name", "bank_account_number", "mobile_money_provider", "mobile_money_number"], "ordering": ["employee_id"], "required_only": False},
     "guards": {"model": Guard, "form": GuardForm, "title": "Guards", "icon": "GD", "fields": ["employee", "qualification", "armed_status"]},
     "supervisors": {"model": Supervisor, "form": SupervisorForm, "title": "Supervisors", "icon": "SV", "fields": ["employee", "authority_level"]},
     "training": {"model": Training, "form": TrainingForm, "title": "Training", "icon": "TR", "fields": ["training_type", "trainee", "training_name", "provider", "start_date", "end_date"], "detail_fields": ["training_id", "training_type", "trainee", "training_name", "provider", "start_date", "end_date"], "entry_fields": ["training_type", "employee", "recruit", "training_name", "provider", "start_date", "end_date"], "required_only": False},
-    "attendance": {"model": Attendance, "form": AttendanceForm, "title": "Attendance", "icon": "AT", "fields": ["site", "shift", "scheduled_guard", "present", "attended_guard", "date"]},
+    "attendance": {"model": Attendance, "form": AttendanceForm, "title": "Attendance", "icon": "AT", "fields": ["site", "shift", "scheduled_guard", "present", "attended_guard", "date", "verification_status"]},
     "leaves": {"model": Leave, "form": LeaveForm, "title": "Leaves", "icon": "LV", "fields": ["employee", "leave_type", "start_date", "end_date", "application_status", "operations_verification_status", "approval_status"], "detail_fields": ["leave_id", "employee", "leave_type", "start_date", "end_date", "address_while_away", "emergency_contact", "hr_verifier", "supervisor", "hod", "stand_in_coworker", "reason", "application_status", "operations_verification_status", "verified_by", "operations_feedback", "operations_verified_at", "approval_status", "approved_by", "feedback", "hr_decided_at", "created_at", "updated_at"]},
     "disciplinary-actions": {"model": Disciplinary_Action, "form": DisciplinaryActionForm, "title": "Disciplinary Actions", "icon": "DA", "fields": ["employee", "offence_committed", "offence_date", "status", "outcome", "approval_status"], "detail_fields": ["action_id", "employee", "offence_committed", "offence_date", "reported_by", "action_date", "description", "investigation_notes", "hearing_date", "hearing_notes", "steps_taken", "outcome", "conclusion", "concluded_on", "handled_by", "status", "approval_status", "reason"], "required_only": False},
     "performance-evaluations": {"model": Performance_Evaluation, "form": PerformanceEvaluationForm, "title": "Performance Evaluations", "icon": "PE", "fields": ["employee", "review_period_start", "review_period_end", "overall_score", "rating", "status", "evaluated_by"], "detail_fields": ["eval_id", "employee", "date", "review_period_start", "review_period_end", "evaluated_by", "job_knowledge", "quality_of_work", "productivity", "reliability_attendance", "communication", "teamwork", "discipline_compliance", "customer_service", "initiative_problem_solving", "safety_security_awareness", "overall_score", "rating", "strengths", "areas_for_improvement", "goals", "training_recommendations", "supervisor_comments", "employee_comments", "status", "comments"], "required_only": False},
     "documents": {"model": Document, "form": DocumentForm, "title": "Documents", "icon": "DC", "fields": ["employee", "doc_type", "file_path", "expiry_date"], "detail_fields": ["employee", "doc_type", "file_path", "expiry_date", "created_at", "updated_at"], "ordering": ["employee__first_name", "employee__last_name", "expiry_date", "-created_at"], "required_only": False},
+    "employee-compliance": {"model": EmployeeComplianceRecord, "form": EmployeeComplianceRecordForm, "title": "Employee Compliance", "icon": "EC", "fields": ["employee", "compliance_type", "reference_number", "expiry_date", "status", "verified_by"], "required_only": False},
+    "exit-clearances": {"model": ExitClearance, "form": ExitClearanceForm, "title": "Exit Clearances", "icon": "EX", "fields": ["employee", "clearance_date", "assets_returned", "finance_cleared", "operations_cleared", "hr_cleared", "status"], "required_only": False},
     "salaries": {"model": Salary, "form": SalaryForm, "title": "Salaries", "icon": "SA", "fields": ["employee", "shifts_worked", "overtime_shifts", "daily_rate", "basic_salary", "overtime_pay", "allowances", "loan_deduction", "medical_deduction", "advance_recovery", "ledger_installment_amount", "ledger_advance_balance", "total_deductions", "total_salary", "pay_period"], "detail_fields": ["employee", "pay_period", "period_start_date", "period_end_date", "shifts_worked", "overtime_shifts", "daily_rate", "overtime_daily_rate", "basic_salary", "overtime_pay", "allowances", "loan_deduction", "medical_deduction", "other_payroll_deductions", "advance_recovery", "ledger_installment_amount", "ledger_advance_balance", "deductions", "bonus", "gross_pay", "total_deductions", "total_salary"], "required_only": False, "managed_table": True},
+    "payroll-periods": {"model": PayrollPeriod, "form": PayrollPeriodForm, "title": "Payroll Periods", "icon": "PP", "fields": ["name", "start_date", "end_date", "status", "opened_by", "locked_by", "locked_at"], "required_only": False},
+    "payroll-runs": {"model": PayrollRun, "form": PayrollRunForm, "title": "Payroll Runs", "icon": "PR", "fields": ["period", "status", "prepared_by", "reviewed_by", "approved_by", "total_gross", "total_deductions", "total_net"], "required_only": False},
     "advances": {"model": Advance, "form": AdvanceForm, "title": "Advances", "icon": "AD", "fields": ["advance_id", "employee", "amount_requested", "installment_amount", "balance", "verification_status", "approval_status", "status", "disbursement_date"], "detail_fields": ["advance_id", "employee", "amount_requested", "installment_amount", "balance", "verification_status", "verified_by", "verified_at", "approval_status", "approved_by", "disbursement_date", "status", "created_at", "updated_at"], "entry_fields": ["employee", "amount_requested"], "required_only": False},
     "payroll-deductions": {"model": PayrollDeduction, "form": PayrollDeductionForm, "title": "Payroll Deductions", "icon": "PD", "fields": ["employee", "category", "description", "amount", "start_date", "end_date", "status"], "detail_fields": ["employee", "category", "description", "amount", "start_date", "end_date", "status", "created_at", "updated_at"], "required_only": False},
     "invoices": {"model": Invoice, "form": InvoiceForm, "title": "Invoices", "icon": "IV", "fields": ["invoice_number", "contract", "client", "invoiced_site_count", "invoice_date", "due_date", "deployed_guards", "rate_per_guard", "contract_amount", "tax_amount", "total_amount", "status"], "detail_fields": ["invoice_number", "contract", "client", "invoiced_sites", "invoice_date", "due_date", "billing_start_date", "billing_end_date", "description", "deployed_guards", "rate_per_guard", "contract_amount", "tax_rate", "tax_amount", "total_amount", "status", "created_at", "updated_at"], "entry_fields": ["contract", "sites", "billable_products", "invoice_date", "due_date", "billing_start_date", "billing_end_date", "tax_rate", "status"], "required_only": False},
@@ -223,7 +268,7 @@ MODULE_GROUPS = {
     "payroll": {
         "title": "Payroll",
         "icon": "PR",
-        "items": ["salaries", "advances", "payroll-deductions"],
+        "items": ["salaries", "payroll-periods", "payroll-runs", "advances", "payroll-deductions"],
     },
     "procurement": {
         "title": "Procurement",
@@ -233,8 +278,8 @@ MODULE_GROUPS = {
 }
 
 DEPARTMENTS = [
-    {"name": "Operations", "items": ["clients", "contracts", "sites", "shifts", "assets", "asset-assignments", "incidents", "deployments", "attendance"]},
-    {"name": "Human Resources", "items": ["employees", "job-postings", "job-applications", "job-application-notifications", "training", "leaves", "disciplinary-actions", "performance-evaluations", "documents"]},
+    {"name": "Operations", "items": ["clients", "contracts", "sites", "site-posts", "site-risk-assessments", "shifts", "assets", "asset-assignments", "incidents", "deployments", "attendance", "supervisor-visits", "patrol-routes", "patrol-checkpoints", "patrol-sessions", "patrol-checkpoint-visits"]},
+    {"name": "Human Resources", "items": ["employees", "employee-compliance", "exit-clearances", "job-postings", "job-applications", "job-application-notifications", "training", "leaves", "disciplinary-actions", "performance-evaluations", "documents"]},
     {"name": "Finance", "items": ["payroll", "procurement", "invoices", "paymees", "payments", "budgets", "expenses"]},
 ]
 
@@ -614,6 +659,7 @@ def home(request):
     open_incidents = Incident.objects.exclude(status__in=("resolved", "closed")).count()
     high_risk_incidents = Incident.objects.filter(severity_level__in=("high", "critical")).exclude(status__in=("resolved", "closed")).count()
     active_deployments = Deployment.objects.filter(status="active").count()
+    missed_patrols = PatrolSession.objects.filter(status="missed").count()
     site_count = Site.objects.count()
     pending_leaves = Leave.objects.filter(approval_status="pending").count()
     pending_advances = Advance.objects.filter(approval_status="pending").count()
@@ -640,6 +686,7 @@ def home(request):
     ]
     queue_cards = [
         {"label": "Incidents", "value": open_incidents, "caption": f"{high_risk_incidents} high risk", "href": "incidents", "tone": "red"},
+        {"label": "Missed Patrols", "value": missed_patrols, "caption": "Needs follow-up", "href": "patrol-sessions", "tone": "red"},
         {"label": "Leave Reviews", "value": pending_leaves, "caption": "Pending approval", "href": "leaves", "tone": "amber"},
         {"label": "Advances", "value": pending_advances, "caption": "Awaiting decision", "href": "advances", "tone": "blue"},
         {"label": "Draft Invoices", "value": draft_invoices, "caption": "To finalize", "href": "invoices", "tone": "green"},

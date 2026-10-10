@@ -25,6 +25,17 @@ def serialize_instance(instance):
         else:
             data[field.name] = value
 
+    for name in ("remaining_amount", "utilization_rate", "variance_amount", "accountability_due_at"):
+        if not hasattr(instance.__class__, name):
+            continue
+        value = getattr(instance, name)
+        if isinstance(value, Decimal):
+            data[name] = str(value)
+        elif hasattr(value, "isoformat"):
+            data[name] = value.isoformat()
+        else:
+            data[name] = value
+
     return data
 
 
@@ -52,6 +63,12 @@ def apply_payload(instance, payload, *, creating=False):
 
     for name, value in payload.items():
         field = editable_fields.get(name)
+        if field is None and name.endswith("_id"):
+            related_name = name[:-3]
+            related_field = editable_fields.get(related_name)
+            if isinstance(related_field, (models.ForeignKey, models.OneToOneField)):
+                setattr(instance, related_field.attname, value)
+            continue
         if field is None:
             continue
 

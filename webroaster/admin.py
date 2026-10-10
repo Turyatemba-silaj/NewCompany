@@ -6,12 +6,12 @@ except ModuleNotFoundError:
     TabularInline = admin.TabularInline
 from .models import (
     # Operations Department
-    AuditLog, Client, Contract, ContractDeliverable, Region, Site, Shift, Asset, AssetAssignment, Incident, IncidentNotification, Patrol_Log, Deployment, DeploymentArea,
+    AuditLog, Notification, WorkflowAction, ClientUserAccess, Client, Contract, ContractDeliverable, Region, Site, SitePost, SiteRiskAssessment, Shift, Asset, AssetAssignment, Incident, IncidentNotification, Patrol_Log, PatrolRoute, PatrolCheckpoint, PatrolSession, PatrolCheckpointVisit, Deployment, DeploymentArea, Roster, RosterAssignment, SupervisorVisit, GuardPresenceVerification,
     # Human Resources Department
     Role, Position, Employee, Guard, Supervisor, Training, Attendance, Leave, 
-    Disciplinary_Action, DisciplinaryNotification, Performance_Evaluation, Document, LeaveNotification,
+    Disciplinary_Action, DisciplinaryNotification, Performance_Evaluation, Document, EmployeeComplianceRecord, ExitClearance, LeaveNotification,
     # Finance Department
-    Salary, PayrollDeduction, Advance, AdvanceRecovery, Invoice, InvoiceBillableItem, InvoiceBillableItemPrice, Paymee, Payment, Supplier, ProcurementRequisition, ProcurementApproval, SupplierProformaInvoice, SupplierProformaItemPrice, SupplierProformaInvoiceItem, PurchaseOrder, GoodsReceivedNote, SupplierInvoice, SupplierPayment, ProcurementNotification, Budget, Expense, ExpenseNotification, BudgetNotification,
+    Salary, PayrollDeduction, PayrollPeriod, PayrollRun, Advance, AdvanceRecovery, Invoice, InvoiceBillableItem, InvoiceBillableItemPrice, Paymee, Payment, Supplier, ProcurementRequisition, ProcurementApproval, SupplierProformaInvoice, SupplierProformaItemPrice, SupplierProformaInvoiceItem, PurchaseOrder, GoodsReceivedNote, SupplierInvoice, SupplierPayment, ProcurementNotification, Budget, Expense, ExpenseNotification, BudgetNotification,
     WebsiteAdvertisement, CompanyEvent, WebsiteResource, AssociatedLink, JobPosting, JobApplication, JobApplicationNotification
 )
 
@@ -142,6 +142,10 @@ class DeploymentAdmin(ModelAdmin):
     list_filter = ('status', 'shift_coverage', 'client', 'start_date', 'site')
     search_fields = ('client__client_name', 'site__site_name', 'day_guards__first_name', 'day_guards__last_name', 'night_guards__first_name', 'night_guards__last_name')
     filter_horizontal = ('day_guards', 'night_guards')
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.sync_operational_plan()
 
 
 
@@ -543,6 +547,34 @@ class JobApplicationNotificationAdmin(ModelAdmin):
     search_fields = ('application__applicant_name', 'application__job__title', 'recipient__first_name', 'recipient__last_name', 'recipient__email', 'message')
     readonly_fields = ('created_at', 'updated_at')
 
+
+class PhaseModelAdmin(ModelAdmin):
+    list_per_page = 50
+
+
+for model in (
+    WorkflowAction,
+    Notification,
+    ClientUserAccess,
+    SitePost,
+    SiteRiskAssessment,
+    PatrolRoute,
+    PatrolCheckpoint,
+    PatrolSession,
+    PatrolCheckpointVisit,
+    Roster,
+    RosterAssignment,
+    SupervisorVisit,
+    GuardPresenceVerification,
+    EmployeeComplianceRecord,
+    ExitClearance,
+    PayrollPeriod,
+    PayrollRun,
+):
+    try:
+        admin.site.register(model, PhaseModelAdmin)
+    except admin.sites.AlreadyRegistered:
+        pass
 
 
 

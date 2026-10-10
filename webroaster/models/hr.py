@@ -243,6 +243,20 @@ class Employee(models.Model):
     def can_transfer(self):
         return self.role in ('guard', 'supervisor')
 
+    def is_deployment_eligible(self, on_date=None):
+        check_date = on_date or timezone.localdate()
+        if self.status != "active" or self.role not in ("guard", "supervisor"):
+            return False
+        if self.leaves.filter(
+            approval_status="approved",
+            start_date__lte=check_date,
+            end_date__gte=check_date,
+        ).exists():
+            return False
+        if hasattr(self, "compliance_records") and self.compliance_records.filter(status="expired").exists():
+            return False
+        return True
+
     def calculate_daily_rate(self):
         if self.role == "guard":
             guard_rates = {
@@ -940,5 +954,97 @@ class Document(models.Model):
         db_table = 'documents'
 
 
+class EmployeeComplianceRecord(models.Model):
+    compliance_id = models.AutoField(primary_key=True)
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="compliance_records")
+    COMPLIANCE_TYPE_CHOICES = [
+        ("background_check", "Background Check"),
+        ("training_certificate", "Training Certificate"),
+        ("license", "License"),
+        ("medical_clearance", "Medical Clearance"),
+        ("weapon_authorization", "Weapon Authorization"),
+        ("other", "Other"),
+    ]
+    compliance_type = models.CharField(max_length=40, choices=COMPLIANCE_TYPE_CHOICES)
+    reference_number = models.CharField(max_length=120, blank=True, default="")
+    issued_date = models.DateField(blank=True, null=True)
+    expiry_date = models.DateField(blank=True, null=True)
+    verified_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="verified_compliance_records")
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("verified", "Verified"),
+        ("expired", "Expired"),
+        ("rejected", "Rejected"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    attachment = models.FileField(upload_to="employee_compliance/", blank=True, null=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_current(self):
+        today = timezone.localdate()
+        return self.status == "verified" and (self.expiry_date is None or self.expiry_date >= today)
+
+    def clean(self):
+        super().clean()
+        if self.issued_date and self.expiry_date and self.expiry_date < self.issued_date:
+            raise ValidationError("Expiry date cannot be earlier than issued date.")
+
+    def save(self, *args, **kwargs):
+        if self.expiry_date and self.expiry_date < timezone.localdate():
+            self.status = "expired"
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.employee} - {self.get_compliance_type_display()}"
+
+    class Meta:
+        db_table = "employee_compliance_records"
+        ordering = ["employee__first_name", "employee__last_name", "compliance_type"]
+        indexes = [
+            models.Index(fields=["employee", "status"], name="empcomp_employee_status_idx"),
+            models.Index(fields=["compliance_type", "status"], name="empcomp_type_status_idx"),
+        ]
 
 
+class ExitClearance(models.Model):
+    clearance_id = models.AutoField(primary_key=True)
+    employee = models.OneToOneField(Employee, on_delete=models.CASCADE, related_name="exit_clearance")
+    initiated_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="initiated_exit_clearances")
+    clearance_date = models.DateField(default=timezone.localdate)
+    assets_returned = models.BooleanField(default=False)
+    finance_cleared = models.BooleanField(default=False)
+    operations_cleared = models.BooleanField(default=False)
+    hr_cleared = models.BooleanField(default=False)
+    notes = models.TextField(blank=True, default="")
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("cleared", "Cleared"),
+        ("blocked", "Blocked"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    cleared_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def sync_status(self):
+        if self.assets_returned and self.finance_cleared and self.operations_cleared and self.hr_cleared:
+            self.status = "cleared"
+            if not self.cleared_at:
+                self.cleared_at = timezone.now()
+        elif self.status == "cleared":
+            self.status = "pending"
+            self.cleared_at = None
+
+    def save(self, *args, **kwargs):
+        self.sync_status()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Exit clearance - {self.employee}"
+
+    class Meta:
+        db_table = "exit_clearances"

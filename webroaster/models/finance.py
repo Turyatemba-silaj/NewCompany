@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Sum
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
@@ -424,6 +425,103 @@ class Salary(models.Model):
 
     class Meta:
         db_table = 'salaries'
+
+
+class PayrollPeriod(models.Model):
+    period_id = models.AutoField(primary_key=True)
+    name = models.CharField(max_length=120)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    STATUS_CHOICES = [
+        ("open", "Open"),
+        ("calculated", "Calculated"),
+        ("reviewed", "Reviewed"),
+        ("approved", "Approved"),
+        ("paid", "Paid"),
+        ("locked", "Locked"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="open")
+    opened_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="opened_payroll_periods")
+    locked_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="locked_payroll_periods")
+    locked_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_locked(self):
+        return self.status == "locked"
+
+    def clean(self):
+        super().clean()
+        if self.end_date and self.start_date and self.end_date < self.start_date:
+            raise ValidationError("Payroll period end date cannot be earlier than the start date.")
+        if self.status == "locked" and not self.locked_at:
+            self.locked_at = timezone.now()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        db_table = "payroll_periods"
+        ordering = ["-start_date", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=["start_date", "end_date"], name="uniq_payroll_period"),
+        ]
+
+
+class PayrollRun(models.Model):
+    run_id = models.AutoField(primary_key=True)
+    period = models.ForeignKey(PayrollPeriod, on_delete=models.CASCADE, related_name="runs")
+    salaries = models.ManyToManyField(Salary, blank=True, related_name="payroll_runs")
+    prepared_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="prepared_payroll_runs")
+    reviewed_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="reviewed_payroll_runs")
+    approved_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="approved_payroll_runs")
+    paid_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, blank=True, null=True, related_name="paid_payroll_runs")
+    STATUS_CHOICES = PayrollPeriod.STATUS_CHOICES
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="open")
+    total_gross = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
+    total_deductions = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
+    total_net = models.DecimalField(max_digits=14, decimal_places=2, default=0, editable=False)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def calculate_totals(self):
+        totals = {"gross": Decimal("0.00"), "deductions": Decimal("0.00"), "net": Decimal("0.00")}
+        if not self.pk:
+            return totals
+        for salary in self.salaries.all():
+            totals["gross"] += salary.gross_pay
+            totals["deductions"] += salary.total_deductions
+            totals["net"] += salary.total_salary
+        return totals
+
+    def refresh_totals(self):
+        totals = self.calculate_totals()
+        self.total_gross = totals["gross"]
+        self.total_deductions = totals["deductions"]
+        self.total_net = totals["net"]
+        self.save(update_fields=["total_gross", "total_deductions", "total_net", "updated_at"])
+
+    def clean(self):
+        super().clean()
+        if self.period_id and self.period.is_locked and self.status != "locked":
+            raise ValidationError("Cannot change a payroll run inside a locked payroll period.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Payroll run - {self.period}"
+
+    class Meta:
+        db_table = "payroll_runs"
+        ordering = ["-created_at", "-run_id"]
 
 
 class Advance(models.Model):
@@ -1190,7 +1288,12 @@ class Budget(models.Model):
         expense_model = globals().get("Expense")
         if not expense_model or not self.pk:
             return
-        self.spent_amount = sum((expense.amount for expense in expense_model.objects.filter(budget=self).exclude(status="rejected")), Decimal("0.00"))
+        self.spent_amount = (
+            expense_model.objects.filter(budget=self)
+            .exclude(status="rejected")
+            .aggregate(total=Sum("amount"))["total"]
+            or Decimal("0.00")
+        )
 
     def update_accountability_status(self):
         if self.approval_status != 'approved':
@@ -1257,8 +1360,9 @@ class Budget(models.Model):
             if update_fields is not None:
                 update_fields.add("approved_at")
         self.update_spent_amount()
+        self.update_accountability_status()
         if update_fields is not None:
-            update_fields.update(["spent_amount"])
+            update_fields.update(["spent_amount", "accountability_status"])
             kwargs["update_fields"] = list(update_fields)
         self.full_clean()
         super().save(*args, **kwargs)
@@ -1409,6 +1513,9 @@ class Expense(models.Model):
             raise ValidationError("Approved expense accountability requires an approver.")
 
     def save(self, *args, **kwargs):
+        previous_budget_id = None
+        if self.pk:
+            previous_budget_id = type(self).objects.filter(pk=self.pk).values_list("budget_id", flat=True).first()
         update_fields = kwargs.get("update_fields")
         if update_fields is not None:
             update_fields = set(update_fields)
@@ -1427,6 +1534,10 @@ class Expense(models.Model):
             super().save(update_fields=["expense_code"])
         if self.budget_id:
             self.budget.save(update_fields=["spent_amount", "updated_at"])
+        if previous_budget_id and previous_budget_id != self.budget_id:
+            previous_budget = Budget.objects.filter(pk=previous_budget_id).first()
+            if previous_budget:
+                previous_budget.save(update_fields=["spent_amount", "updated_at"])
         self.create_accountability_notifications()
 
     

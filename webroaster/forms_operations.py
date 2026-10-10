@@ -15,11 +15,21 @@ from .models import (
     Deployment,
     DeploymentArea,
     Employee,
+    GuardPresenceVerification,
     Incident,
     Patrol_Log,
+    PatrolCheckpoint,
+    PatrolCheckpointVisit,
+    PatrolRoute,
+    PatrolSession,
     Region,
+    Roster,
+    RosterAssignment,
     Shift,
     Site,
+    SitePost,
+    SiteRiskAssessment,
+    SupervisorVisit,
     site_assignment_conflicts,
 )
 
@@ -528,6 +538,9 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
                 instance.night_guards.clear()
             elif shift_type == "night":
                 instance.day_guards.clear()
+            elif shift_type == "day_night":
+                get_default_shift("night")
+            instance.sync_operational_plan()
         return instance
 
 
@@ -587,8 +600,94 @@ class SupervisorDutyChecklistForm(forms.Form):
 class AttendanceForm(StyledModelForm):
     class Meta:
         model = Attendance
+        fields = [
+            "deployment",
+            "roster_assignment",
+            "site",
+            "shift",
+            "scheduled_guard",
+            "present",
+            "attended_guard",
+            "date",
+            "time_in",
+            "time_out",
+            "verification_method",
+            "verification_status",
+            "verified_by",
+            "verified_at",
+            "remarks",
+        ]
+        widgets = {"date": DATE_WIDGET, "time_in": TIME_WIDGET, "time_out": TIME_WIDGET, "verified_at": DATETIME_WIDGET}
+
+
+class RosterForm(DateRangeValidationMixin, StyledModelForm):
+    start_date_field = "period_start"
+    end_date_field = "period_end"
+
+    class Meta:
+        model = Roster
         fields = "__all__"
-        widgets = {"date": DATE_WIDGET, "time_in": TIME_WIDGET, "time_out": TIME_WIDGET}
+        widgets = {"period_start": DATE_WIDGET, "period_end": DATE_WIDGET, "published_at": DATETIME_WIDGET}
+
+
+class RosterAssignmentForm(StyledModelForm):
+    class Meta:
+        model = RosterAssignment
+        fields = "__all__"
+        widgets = {"date": DATE_WIDGET}
+
+
+class SupervisorVisitForm(StyledModelForm):
+    class Meta:
+        model = SupervisorVisit
+        fields = "__all__"
+        widgets = {"visit_started_at": DATETIME_WIDGET, "visit_completed_at": DATETIME_WIDGET}
+
+
+class GuardPresenceVerificationForm(StyledModelForm):
+    class Meta:
+        model = GuardPresenceVerification
+        fields = "__all__"
+        widgets = {"verified_at": DATETIME_WIDGET}
+
+
+class SitePostForm(StyledModelForm):
+    class Meta:
+        model = SitePost
+        fields = "__all__"
+
+
+class SiteRiskAssessmentForm(StyledModelForm):
+    class Meta:
+        model = SiteRiskAssessment
+        fields = "__all__"
+        widgets = {"assessment_date": DATE_WIDGET, "next_review_date": DATE_WIDGET}
+
+
+class PatrolRouteForm(StyledModelForm):
+    class Meta:
+        model = PatrolRoute
+        fields = "__all__"
+
+
+class PatrolCheckpointForm(StyledModelForm):
+    class Meta:
+        model = PatrolCheckpoint
+        fields = "__all__"
+
+
+class PatrolSessionForm(StyledModelForm):
+    class Meta:
+        model = PatrolSession
+        fields = "__all__"
+        widgets = {"started_at": DATETIME_WIDGET, "completed_at": DATETIME_WIDGET}
+
+
+class PatrolCheckpointVisitForm(StyledModelForm):
+    class Meta:
+        model = PatrolCheckpointVisit
+        fields = "__all__"
+        widgets = {"visited_at": DATETIME_WIDGET}
 
 
 class IncidentGuardsOnDutyMixin:

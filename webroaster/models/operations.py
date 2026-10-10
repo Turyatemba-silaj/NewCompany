@@ -3,7 +3,7 @@ from decimal import Decimal
 import re
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 from django.utils import timezone
@@ -377,6 +377,60 @@ class Site(models.Model):
         ]
 
 
+class SitePost(models.Model):
+    """A controlled duty post within a client site."""
+    post_id = models.AutoField(primary_key=True)
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="posts")
+    post_name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default="")
+    required_day_guards = models.PositiveIntegerField(default=0)
+    required_night_guards = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def required_guards(self):
+        return self.required_day_guards + self.required_night_guards
+
+    def __str__(self):
+        return f"{self.site} - {self.post_name}"
+
+    class Meta:
+        db_table = "site_posts"
+        ordering = ["site__site_name", "post_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["site", "post_name"], name="uniq_site_post_name"),
+        ]
+
+
+class SiteRiskAssessment(models.Model):
+    assessment_id = models.AutoField(primary_key=True)
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="risk_assessments")
+    assessed_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="site_risk_assessments")
+    assessment_date = models.DateField(default=timezone.localdate)
+    RISK_LEVEL_CHOICES = [
+        ("low", "Low"),
+        ("medium", "Medium"),
+        ("high", "High"),
+        ("critical", "Critical"),
+    ]
+    risk_level = models.CharField(max_length=20, choices=RISK_LEVEL_CHOICES, default="medium")
+    threats = models.TextField(blank=True, default="")
+    vulnerabilities = models.TextField(blank=True, default="")
+    recommendations = models.TextField(blank=True, default="")
+    next_review_date = models.DateField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.site} risk assessment - {self.assessment_date}"
+
+    class Meta:
+        db_table = "site_risk_assessments"
+        ordering = ["-assessment_date", "site__site_name"]
+
+
 class Shift(models.Model):
     """Reusable shift template used by deployments."""
     shift_id = models.AutoField(primary_key=True)
@@ -680,6 +734,166 @@ class Patrol_Log(models.Model):
         db_table = 'patrol_logs'
 
 
+class PatrolRoute(models.Model):
+    route_id = models.AutoField(primary_key=True)
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="patrol_routes")
+    route_name = models.CharField(max_length=160)
+    description = models.TextField(blank=True, default="")
+    required_frequency_minutes = models.PositiveIntegerField(default=60)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.route_name} - {self.site}"
+
+    class Meta:
+        db_table = "patrol_routes"
+        ordering = ["site__site_name", "route_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["site", "route_name"], name="uniq_patrol_route"),
+        ]
+
+
+class PatrolCheckpoint(models.Model):
+    checkpoint_id = models.AutoField(primary_key=True)
+    route = models.ForeignKey(PatrolRoute, on_delete=models.CASCADE, related_name="checkpoints")
+    checkpoint_name = models.CharField(max_length=160)
+    sequence = models.PositiveIntegerField(default=1)
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    verification_code = models.CharField(max_length=80, blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.route} - {self.checkpoint_name}"
+
+    class Meta:
+        db_table = "patrol_checkpoints"
+        ordering = ["route", "sequence", "checkpoint_name"]
+        constraints = [
+            models.UniqueConstraint(fields=["route", "sequence"], name="uniq_route_checkpoint_seq"),
+        ]
+
+
+class PatrolSession(models.Model):
+    session_id = models.AutoField(primary_key=True)
+    route = models.ForeignKey(PatrolRoute, on_delete=models.CASCADE, related_name="sessions")
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="patrol_sessions")
+    started_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="patrol_sessions_started")
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(blank=True, null=True)
+    STATUS_CHOICES = [
+        ("scheduled", "Scheduled"),
+        ("in_progress", "In Progress"),
+        ("completed", "Completed"),
+        ("missed", "Missed"),
+        ("cancelled", "Cancelled"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="scheduled")
+    remarks = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def missed_checkpoints(self):
+        if not self.pk:
+            return 0
+        required_ids = set(self.route.checkpoints.filter(is_active=True).values_list("pk", flat=True))
+        visited_ids = set(self.checkpoint_visits.values_list("checkpoint_id", flat=True))
+        return len(required_ids - visited_ids)
+
+    @property
+    def due_at(self):
+        return self.started_at + timedelta(minutes=max(self.route.required_frequency_minutes, 1))
+
+    @property
+    def is_complete(self):
+        return self.pk and self.missed_checkpoints == 0
+
+    def refresh_status_from_visits(self):
+        if not self.pk:
+            return
+        if self.status in ("cancelled", "missed"):
+            return
+        if self.is_complete:
+            self.status = "completed"
+            if not self.completed_at:
+                self.completed_at = timezone.now()
+        elif self.checkpoint_visits.exists():
+            self.status = "in_progress"
+
+    def mark_missed_if_overdue(self, now=None):
+        now = now or timezone.now()
+        if self.status in ("scheduled", "in_progress") and self.due_at < now and self.missed_checkpoints > 0:
+            self.status = "missed"
+            self.save(update_fields=["status", "updated_at"])
+            return True
+        return False
+
+    def clean(self):
+        super().clean()
+        if self.route_id and self.site_id and self.route.site_id != self.site_id:
+            raise ValidationError("Selected route does not belong to the selected site.")
+        if self.completed_at and self.completed_at < self.started_at:
+            raise ValidationError("Completion time cannot be earlier than start time.")
+
+    def save(self, *args, **kwargs):
+        self.refresh_status_from_visits()
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.route} - {self.started_at:%Y-%m-%d %H:%M}"
+
+    class Meta:
+        db_table = "patrol_sessions"
+        ordering = ["-started_at"]
+
+
+class PatrolCheckpointVisit(models.Model):
+    visit_id = models.AutoField(primary_key=True)
+    session = models.ForeignKey(PatrolSession, on_delete=models.CASCADE, related_name="checkpoint_visits")
+    checkpoint = models.ForeignKey(PatrolCheckpoint, on_delete=models.CASCADE, related_name="visits")
+    visited_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="patrol_checkpoint_visits")
+    visited_at = models.DateTimeField(default=timezone.now)
+    verification_method = models.CharField(max_length=30, choices=[
+        ("manual", "Manual"),
+        ("gps", "GPS"),
+        ("qr", "QR"),
+        ("nfc", "NFC"),
+        ("rfid", "RFID"),
+        ("biometric", "Biometric"),
+    ], default="manual")
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    remarks = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        super().clean()
+        if self.session_id and self.checkpoint_id and self.checkpoint.route_id != self.session.route_id:
+            raise ValidationError("Checkpoint does not belong to the selected patrol route.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+        self.session.refresh_status_from_visits()
+        self.session.save(update_fields=["status", "completed_at", "updated_at"])
+
+    def __str__(self):
+        return f"{self.checkpoint} - {self.visited_at:%Y-%m-%d %H:%M}"
+
+    class Meta:
+        db_table = "patrol_checkpoint_visits"
+        ordering = ["session", "visited_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["session", "checkpoint"], name="uniq_session_checkpoint"),
+        ]
+
+
 class Deployment(models.Model):
     """Manages deployments of guards to sites"""
     SHIFT_COVERAGE_CHOICES = [
@@ -728,6 +942,137 @@ class Deployment(models.Model):
         if not self.pk:
             return "-"
         return ", ".join(str(guard) for guard in self.night_guards.all()) or "-"
+
+    def roster_period_end(self):
+        return self.end_date or self.start_date
+
+    def guards_for_shift_type(self, shift_type):
+        if not self.pk:
+            return Employee.objects.none()
+        if shift_type == "day":
+            return self.day_guards.filter(status="active").order_by("employee_number", "first_name", "last_name")
+        if shift_type == "night":
+            return self.night_guards.filter(status="active").order_by("employee_number", "first_name", "last_name")
+        return Employee.objects.none()
+
+    @staticmethod
+    def shift_for_type(shift_type):
+        return Shift.objects.filter(shift_type=shift_type).order_by("shift_id").first()
+
+    @staticmethod
+    def shift_window(work_date, shift):
+        start_at = timezone.make_aware(datetime.combine(work_date, shift.start_time), timezone.get_current_timezone())
+        end_at = timezone.make_aware(datetime.combine(work_date, shift.end_time), timezone.get_current_timezone())
+        if end_at <= start_at:
+            end_at += timedelta(days=1)
+        return start_at, end_at
+
+    def sync_patrol_sessions_for_shift(self, work_date, shift):
+        if not self.site_id or not shift:
+            return 0
+        created = 0
+        start_at, end_at = self.shift_window(work_date, shift)
+        routes = self.site.patrol_routes.filter(is_active=True)
+        for route in routes:
+            interval = timedelta(minutes=max(route.required_frequency_minutes, 1))
+            scheduled_at = start_at
+            while scheduled_at < end_at:
+                _session, session_created = PatrolSession.objects.get_or_create(
+                    route=route,
+                    site=self.site,
+                    started_at=scheduled_at,
+                    defaults={"status": "scheduled"},
+                )
+                if session_created:
+                    created += 1
+                scheduled_at += interval
+        return created
+
+    def sync_operational_plan(self):
+        """Create roster assignments and expected attendance from this deployment."""
+        if not self.pk or self.status != "active" or not self.site_id or not self.start_date:
+            return {"rosters": 0, "assignments": 0, "attendance": 0, "patrol_sessions": 0, "skipped": 0}
+
+        period_end = self.roster_period_end()
+        created_counts = {"rosters": 0, "assignments": 0, "attendance": 0, "patrol_sessions": 0, "skipped": 0}
+        with transaction.atomic():
+            roster, roster_created = Roster.objects.get_or_create(
+                period_start=self.start_date,
+                period_end=period_end,
+                deployment_area=self.site.region,
+                defaults={"status": "draft"},
+            )
+            if roster_created:
+                created_counts["rosters"] += 1
+
+            work_date = self.start_date
+            while work_date <= period_end:
+                for shift_type in self.covered_shift_types:
+                    shift = self.shift_for_type(shift_type)
+                    if not shift:
+                        created_counts["skipped"] += self.guards_for_shift_type(shift_type).count()
+                        continue
+                    created_counts["patrol_sessions"] += self.sync_patrol_sessions_for_shift(work_date, shift)
+                    for guard in self.guards_for_shift_type(shift_type):
+                        if hasattr(guard, "is_deployment_eligible") and not guard.is_deployment_eligible(work_date):
+                            created_counts["skipped"] += 1
+                            continue
+                        if not Attendance.employee_has_deployment_area(guard, self.site, work_date):
+                            created_counts["skipped"] += 1
+                            continue
+                        existing_assignment = RosterAssignment.objects.filter(
+                            guard=guard,
+                            date=work_date,
+                            shift=shift,
+                        ).first()
+                        if existing_assignment and existing_assignment.deployment_id not in (None, self.pk):
+                            created_counts["skipped"] += 1
+                            continue
+                        assignment, assignment_created = RosterAssignment.objects.update_or_create(
+                            guard=guard,
+                            date=work_date,
+                            shift=shift,
+                            defaults={
+                                "roster": roster,
+                                "site": self.site,
+                                "deployment": self,
+                                "assignment_type": "normal",
+                                "status": "scheduled",
+                            },
+                        )
+                        if assignment_created:
+                            created_counts["assignments"] += 1
+                        existing_attendance = Attendance.objects.filter(
+                            scheduled_guard=guard,
+                            date=work_date,
+                            shift__shift_type=shift_type,
+                        ).first()
+                        if existing_attendance:
+                            if existing_attendance.site_id == self.site_id:
+                                existing_attendance.roster_assignment = assignment
+                                existing_attendance.deployment = self
+                                existing_attendance.shift = shift
+                                existing_attendance.attendance_source = "deployment_roster"
+                                existing_attendance.save(update_fields=["roster_assignment", "deployment", "shift", "attendance_source", "updated_at"])
+                            else:
+                                created_counts["skipped"] += 1
+                            continue
+                        Attendance.objects.create(
+                            deployment=self,
+                            roster_assignment=assignment,
+                            site=self.site,
+                            shift=shift,
+                            scheduled_guard=guard,
+                            employee=guard,
+                            present=False,
+                            reason="Awaiting supervisor verification",
+                            date=work_date,
+                            time_in=shift.start_time,
+                            attendance_source="deployment_roster",
+                        )
+                        created_counts["attendance"] += 1
+                work_date += timedelta(days=1)
+        return created_counts
 
     def clean(self):
         super().clean()
@@ -877,16 +1222,144 @@ class DeploymentArea(models.Model):
 
 
 
+class Roster(models.Model):
+    roster_id = models.AutoField(primary_key=True)
+    period_start = models.DateField()
+    period_end = models.DateField()
+    deployment_area = models.ForeignKey(Region, on_delete=models.SET_NULL, blank=True, null=True, related_name="rosters")
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("submitted", "Submitted"),
+        ("approved", "Approved"),
+        ("published", "Published"),
+        ("cancelled", "Cancelled"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="draft")
+    prepared_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="prepared_rosters")
+    approved_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="approved_rosters")
+    published_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        super().clean()
+        if self.period_end and self.period_start and self.period_end < self.period_start:
+            raise ValidationError("Roster end date cannot be earlier than start date.")
+        if self.status in ("approved", "published") and not self.approved_by_id:
+            raise ValidationError("Approved or published rosters require an approver.")
+        if self.status == "published" and not self.published_at:
+            self.published_at = timezone.now()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        area = self.deployment_area or "All areas"
+        return f"{area} roster {self.period_start} to {self.period_end}"
+
+    class Meta:
+        db_table = "rosters"
+        ordering = ["-period_start", "deployment_area"]
+        indexes = [
+            models.Index(fields=["period_start", "period_end"], name="roster_period_idx"),
+            models.Index(fields=["deployment_area", "status"], name="roster_area_status_idx"),
+        ]
+
+
+class RosterAssignment(models.Model):
+    assignment_id = models.AutoField(primary_key=True)
+    roster = models.ForeignKey(Roster, on_delete=models.CASCADE, related_name="assignments")
+    guard = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="roster_assignments")
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="roster_assignments")
+    post = models.ForeignKey(SitePost, on_delete=models.SET_NULL, blank=True, null=True, related_name="roster_assignments")
+    shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, blank=True, null=True, related_name="roster_assignments")
+    deployment = models.ForeignKey(Deployment, on_delete=models.SET_NULL, blank=True, null=True, related_name="roster_assignments")
+    date = models.DateField()
+    ASSIGNMENT_TYPE_CHOICES = [
+        ("normal", "Normal"),
+        ("relief", "Relief"),
+        ("replacement", "Replacement"),
+        ("overtime", "Overtime"),
+        ("rest", "Rest"),
+    ]
+    assignment_type = models.CharField(max_length=20, choices=ASSIGNMENT_TYPE_CHOICES, default="normal")
+    STATUS_CHOICES = [
+        ("scheduled", "Scheduled"),
+        ("confirmed", "Confirmed"),
+        ("cancelled", "Cancelled"),
+        ("completed", "Completed"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="scheduled")
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        super().clean()
+        if self.roster_id and self.date and not (self.roster.period_start <= self.date <= self.roster.period_end):
+            raise ValidationError("Assignment date must fall within the roster period.")
+        if self.post_id and self.site_id and self.post.site_id != self.site_id:
+            raise ValidationError("Selected post does not belong to the selected site.")
+        if self.guard_id and self.site_id and self.date and not Attendance.employee_has_deployment_area(self.guard, self.site, self.date):
+            raise ValidationError("This guard is outside the selected site's deployment area.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.guard} - {self.site} - {self.date}"
+
+    class Meta:
+        db_table = "roster_assignments"
+        ordering = ["date", "site__site_name", "shift__shift_type", "guard__employee_number"]
+        indexes = [
+            models.Index(fields=["date", "site", "shift"], name="rostassign_date_site_idx"),
+            models.Index(fields=["guard", "date"], name="rostassign_guard_date_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(fields=["guard", "date", "shift"], name="uniq_guard_roster_shift"),
+        ]
+
+
 class Attendance(models.Model):
     """Manages employee attendance"""
     attendance_id = models.AutoField(primary_key=True)
     deployment = models.ForeignKey(Deployment, on_delete=models.SET_NULL, blank=True, null=True, related_name='attendance_records')
+    roster_assignment = models.ForeignKey(RosterAssignment, on_delete=models.SET_NULL, blank=True, null=True, related_name="attendance_records")
     site = models.ForeignKey(Site, on_delete=models.SET_NULL, blank=True, null=True, related_name='attendance_records')
     shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, blank=True, null=True, related_name='attendance_records')
     scheduled_guard = models.ForeignKey('Employee', on_delete=models.SET_NULL, blank=True, null=True, related_name='scheduled_attendance_records')
     attended_guard = models.ForeignKey('Employee', on_delete=models.SET_NULL, blank=True, null=True, related_name='attended_attendance_records')
     present = models.BooleanField(default=False)
     reason = models.CharField(max_length=255, blank=True)
+    VERIFICATION_METHOD_CHOICES = [
+        ("manual", "Manual"),
+        ("supervisor", "Supervisor"),
+        ("gps", "GPS"),
+        ("qr", "QR"),
+        ("rfid", "RFID"),
+        ("biometric", "Biometric"),
+        ("fingerprint", "Fingerprint"),
+    ]
+    verification_method = models.CharField(max_length=30, choices=VERIFICATION_METHOD_CHOICES, blank=True, default="")
+    VERIFICATION_STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("verified", "Verified"),
+        ("rejected", "Rejected"),
+        ("exception", "Exception"),
+    ]
+    verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS_CHOICES, default="pending")
+    verified_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="verified_attendance_records")
+    verified_at = models.DateTimeField(blank=True, null=True)
+    check_in_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    check_in_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    check_out_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    check_out_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    location_accuracy = models.DecimalField(max_digits=8, decimal_places=2, blank=True, null=True)
+    distance_from_site = models.DecimalField(max_digits=8, decimal_places=2, blank=True, null=True)
+    attendance_source = models.CharField(max_length=40, blank=True, default="manual")
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='attendance_records')
     date = models.DateField()
     time_in = models.TimeField()
@@ -1014,6 +1487,97 @@ class Attendance(models.Model):
             models.Index(fields=["employee", "date"], name="att_employee_date_idx"),
             models.Index(fields=["scheduled_guard", "date"], name="att_scheduled_date_idx"),
             models.Index(fields=["deployment", "date"], name="att_deployment_date_idx"),
+        ]
+
+
+class SupervisorVisit(models.Model):
+    visit_id = models.AutoField(primary_key=True)
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="supervisor_visits")
+    supervisor = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="supervisor_visits")
+    visit_started_at = models.DateTimeField(default=timezone.now)
+    visit_completed_at = models.DateTimeField(blank=True, null=True)
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    location_accuracy = models.DecimalField(max_digits=8, decimal_places=2, blank=True, null=True)
+    STATUS_CHOICES = [
+        ("scheduled", "Scheduled"),
+        ("in_progress", "In Progress"),
+        ("completed", "Completed"),
+        ("missed", "Missed"),
+        ("cancelled", "Cancelled"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="scheduled")
+    remarks = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        super().clean()
+        if self.supervisor_id and self.supervisor.role not in ("supervisor", "manager", "operations_officer"):
+            raise ValidationError("Supervisor visits must be performed by supervisors or operations managers.")
+        if self.visit_completed_at and self.visit_completed_at < self.visit_started_at:
+            raise ValidationError("Visit completion cannot be earlier than the start time.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.site} visit - {self.visit_started_at:%Y-%m-%d %H:%M}"
+
+    class Meta:
+        db_table = "supervisor_visits"
+        ordering = ["-visit_started_at"]
+
+
+class GuardPresenceVerification(models.Model):
+    verification_id = models.AutoField(primary_key=True)
+    supervisor_visit = models.ForeignKey(SupervisorVisit, on_delete=models.CASCADE, related_name="guard_verifications")
+    attendance = models.ForeignKey(Attendance, on_delete=models.SET_NULL, blank=True, null=True, related_name="presence_verifications")
+    guard = models.ForeignKey("Employee", on_delete=models.CASCADE, related_name="presence_verifications")
+    site = models.ForeignKey(Site, on_delete=models.CASCADE, related_name="guard_presence_verifications")
+    shift = models.ForeignKey(Shift, on_delete=models.SET_NULL, blank=True, null=True, related_name="guard_presence_verifications")
+    verified_at = models.DateTimeField(default=timezone.now)
+    verification_method = models.CharField(max_length=30, choices=Attendance.VERIFICATION_METHOD_CHOICES, default="supervisor")
+    STATUS_CHOICES = [
+        ("present", "Present"),
+        ("absent", "Absent"),
+        ("wrong_site", "Wrong Site"),
+        ("relief", "Relief"),
+        ("unverified", "Unverified"),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="present")
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def clean(self):
+        super().clean()
+        if self.supervisor_visit_id and self.site_id and self.supervisor_visit.site_id != self.site_id:
+            raise ValidationError("Guard verification site must match the supervisor visit site.")
+        if self.attendance_id and self.guard_id and self.attendance.attended_guard_id and self.attendance.attended_guard_id != self.guard_id:
+            raise ValidationError("Attendance record belongs to a different attended guard.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+        if self.attendance_id and self.status == "present":
+            self.attendance.verification_method = self.verification_method
+            self.attendance.verification_status = "verified"
+            self.attendance.verified_by = self.supervisor_visit.supervisor
+            self.attendance.verified_at = self.verified_at
+            self.attendance.save(update_fields=["verification_method", "verification_status", "verified_by", "verified_at", "updated_at"])
+
+    def __str__(self):
+        return f"{self.guard} - {self.site} - {self.status}"
+
+    class Meta:
+        db_table = "guard_presence_verifications"
+        ordering = ["-verified_at"]
+        indexes = [
+            models.Index(fields=["site", "verified_at"], name="guardver_site_time_idx"),
+            models.Index(fields=["guard", "verified_at"], name="guardver_guard_time_idx"),
         ]
 
 def site_assignment_conflicts(guards, site=None):
