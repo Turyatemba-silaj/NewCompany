@@ -11,11 +11,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
-import re
 from pathlib import Path
-from urllib.parse import urlparse
-
-import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,74 +31,6 @@ def env_bool(name, default=False):
 
 def env_list(name, default=""):
     return [value.strip() for value in os.environ.get(name, default).split(",") if value.strip()]
-
-
-def first_env_value(*names):
-    for name in names:
-        value = os.environ.get(name)
-        if value:
-            return value
-    return None
-
-
-PLACEHOLDER_DATABASE_HOSTS = {"host", "hostname", "example.com", "localhost.localdomain"}
-REDACTED_ENV_VALUES = {"[SENSITIVE]", "SENSITIVE", "***", "*****"}
-
-
-def clean_database_url(value):
-    value = value.strip().strip("'\"")
-    if value in REDACTED_ENV_VALUES:
-        return ""
-    match = re.search(r"(?:postgres|postgresql)://[^\s'\"]+", value)
-    if match:
-        value = match.group(0)
-    return value
-
-
-def is_usable_database_url(value):
-    parsed = urlparse(value)
-    return parsed.scheme in {"postgres", "postgresql"} and parsed.hostname not in PLACEHOLDER_DATABASE_HOSTS
-
-
-def first_database_url(*names):
-    for name in names:
-        value = os.environ.get(name)
-        if not value:
-            continue
-        value = clean_database_url(value)
-        if "://" not in value and os.environ.get(value):
-            value = clean_database_url(os.environ[value])
-        if value and is_usable_database_url(value):
-            return value
-    return None
-
-
-def database_url_requires_ssl(database_url):
-    parsed = urlparse(database_url)
-    if parsed.hostname in {"127.0.0.1", "localhost"}:
-        return False
-    if "sslmode=" in parsed.query:
-        return False
-    return True
-
-
-def fallback_database_config():
-    return {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "NewCompany"),
-        "USER": os.environ.get("POSTGRES_USER", "postgres"),
-        "PASSWORD": os.environ.get("LOCAL_DB_PASSWORD") or os.environ.get("POSTGRES_PASSWORD", "postgres"),
-        "HOST": os.environ.get("POSTGRES_HOST", "127.0.0.1"),
-        "PORT": os.environ.get("POSTGRES_PORT", "5432"),
-    }
-
-
-def database_configuration_error():
-    return (
-        "Set DATABASE_URL to the same hosted PostgreSQL database used by the live data. "
-        "Vercel cannot read a database that only exists on this computer or localhost; "
-        "export the local data to hosted PostgreSQL, then set that connection string in Vercel."
-    )
 
 
 # Quick-start development settings - unsuitable for production
@@ -177,38 +105,17 @@ WSGI_APPLICATION = 'NewCompany.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
-DATABASE_URL = first_database_url(
-    "DATABASE_URL",
-    "POSTGRES_URL",
-    "POSTGRES_PRISMA_URL",
-    "POSTGRES_URL_NON_POOLING",
-    "postgresql",
-)
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": BASE_DIR / "db.sqlite3",
+    }
+}
 
-if DATABASE_URL:
-    # Hosted production PostgreSQL
-    try:
-        DATABASES = {
-            "default": dj_database_url.parse(
-                DATABASE_URL,
-                conn_max_age=0,
-                conn_health_checks=True,
-                ssl_require=database_url_requires_ssl(DATABASE_URL),
-            )
-        }
-    except Exception as exc:
-        DATABASES = {"default": fallback_database_config()}
-        VERCEL_CONFIGURATION_ERRORS.append(
-            "DATABASE_URL is not a valid PostgreSQL URL. Use a full postgres:// or postgresql:// URL and URL-encode special characters in the password."
-        )
-        if env_bool("DJANGO_STARTUP_DEBUG", False):
-            VERCEL_CONFIGURATION_ERRORS.append(f"DATABASE_URL parse error: {exc}")
-else:
-    # Local development PostgreSQL. Production must provide DATABASE_URL so Vercel
-    # serves the same hosted data instead of an empty temporary database.
-    DATABASES = {"default": fallback_database_config()}
-    if not DEBUG:
-        VERCEL_CONFIGURATION_ERRORS.append(database_configuration_error())
+
+# Use SQLite-compatible versions of legacy database migrations.
+if DATABASES["default"]["ENGINE"] == "django.db.backends.sqlite3":
+    MIGRATION_MODULES = {"webroaster": "NewCompany.sqlite_migrations"}
 
 
 # Password validation
