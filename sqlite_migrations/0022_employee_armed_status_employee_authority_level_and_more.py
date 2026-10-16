@@ -92,8 +92,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(ensure_employee_role_column, migrations.RunPython.noop),
-        migrations.RunPython(ensure_employee_department_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_employee_role_column, migrations.RunPython.noop, atomic=False),
+        migrations.RunPython(ensure_employee_department_column, migrations.RunPython.noop, atomic=False),
         migrations.AddField(
             model_name='employee',
             name='armed_status',

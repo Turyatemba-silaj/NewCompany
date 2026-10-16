@@ -11,10 +11,13 @@ def column_names(schema_editor, table_name):
 
 
 class SQLiteSeparateDatabaseAndState(migrations.SeparateDatabaseAndState):
-    """Materialize state-only legacy columns when building a SQLite database."""
+    """Materialize state-only legacy columns for SQLite and MySQL databases.
+
+    Keep the original class name because existing migrations import it.
+    """
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
-        if schema_editor.connection.vendor != "sqlite":
+        if schema_editor.connection.vendor not in {"sqlite", "mysql"}:
             return super().database_forwards(app_label, schema_editor, from_state, to_state)
         state = from_state.clone()
         for operation in self.state_operations:
@@ -28,7 +31,7 @@ class SQLiteSeparateDatabaseAndState(migrations.SeparateDatabaseAndState):
             operation.database_forwards(app_label, schema_editor, old_state, state)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
-        if schema_editor.connection.vendor != "sqlite":
+        if schema_editor.connection.vendor not in {"sqlite", "mysql"}:
             return super().database_backwards(app_label, schema_editor, from_state, to_state)
         operation = migrations.SeparateDatabaseAndState(database_operations=self.state_operations)
         return operation.database_backwards(app_label, schema_editor, from_state, to_state)

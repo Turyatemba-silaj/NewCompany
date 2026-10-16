@@ -84,9 +84,10 @@ def rename_legacy_tables(apps, schema_editor):
             for column_name in ("created_at", "updated_at"):
                 column_rows = [(name,) for name in column_names(schema_editor, table_name) if name == column_name]
                 if not (column_rows[0] if column_rows else None):
+                    timestamp_type = "datetime(6)" if schema_editor.connection.vendor == "mysql" else "timestamp with time zone"
                     schema_editor.execute(
                         f"ALTER TABLE {quote_name(table_name)} "
-                        f"ADD COLUMN {quote_name(column_name)} timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP"
+                        f"ADD COLUMN {quote_name(column_name)} {timestamp_type} NOT NULL DEFAULT CURRENT_TIMESTAMP"
                     )
 
 
@@ -141,7 +142,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(rename_legacy_tables, rename_legacy_tables_reverse),
+        migrations.RunPython(rename_legacy_tables, rename_legacy_tables_reverse, atomic=False),
         migrations.CreateModel(
             name='Contract',
             fields=[

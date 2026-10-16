@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(ensure_shift_site_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_shift_site_column, migrations.RunPython.noop, atomic=False),
         migrations.AlterField(
             model_name='shift',
             name='site',

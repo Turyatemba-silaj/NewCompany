@@ -1,7 +1,7 @@
 """Check SQLite migrations and data preservation using an in-memory database."""
 
 
-def main():
+def main(engine="sqlite"):
     import os
     import sys
     from pathlib import Path
@@ -10,9 +10,18 @@ def main():
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "NewCompany.settings")
     import django
     from django.conf import settings
-    settings.DATABASES["default"]["NAME"] = ":memory:"
+    if engine == "sqlite":
+        if settings.DATABASES["default"]["ENGINE"] != "django.db.backends.sqlite3":
+            raise RuntimeError("The SQLite check requires DJANGO_DB_ENGINE=sqlite.")
+        settings.DATABASES["default"]["NAME"] = ":memory:"
+    elif settings.DATABASES["default"]["ENGINE"] != "django.db.backends.mysql":
+        raise RuntimeError("The MySQL check requires DJANGO_DB_ENGINE=mysql.")
     django.setup()
     from django.core.management import call_command
+    if engine == "mysql":
+        from django.db import connection
+        if not connection.settings_dict["NAME"].startswith("test_") or connection.introspection.table_names():
+            raise RuntimeError("Use an empty disposable MySQL database whose name starts with test_.")
     # Exercise the same partially applied state as the reported failure.
     call_command("migrate", "webroaster", "0001", verbosity=0, interactive=False)
     from django.db.migrations.executor import MigrationExecutor
@@ -40,8 +49,11 @@ def main():
     call_command("makemigrations", check=True, dry_run=True, interactive=False)
     print("All migrations and model schema checks passed.")
 
-    with connection.cursor() as cursor:
-        assert cursor.execute("PRAGMA foreign_key_check").fetchall() == []
+    if engine == "sqlite":
+        with connection.cursor() as cursor:
+            assert cursor.execute("PRAGMA foreign_key_check").fetchall() == []
+    else:
+        connection.check_constraints()
     from django.test import Client as TestClient
     response = TestClient().get("/staff/login/", HTTP_HOST="localhost")
     assert response.status_code == 200, response.status_code

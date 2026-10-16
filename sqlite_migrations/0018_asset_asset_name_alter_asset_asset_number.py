@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
-        migrations.RunPython(ensure_asset_number_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_asset_number_column, migrations.RunPython.noop, atomic=False),
         migrations.AlterField(
             model_name='asset',
             name='asset_number',

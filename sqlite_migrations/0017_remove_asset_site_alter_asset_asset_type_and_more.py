@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(ensure_asset_site_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_asset_site_column, migrations.RunPython.noop, atomic=False),
         migrations.AlterField(
             model_name='asset',
             name='asset_type',
@@ -66,7 +66,7 @@ class Migration(migrations.Migration):
                 'db_table': 'asset_assignments',
             },
         ),
-        migrations.RunPython(preserve_existing_asset_sites, migrations.RunPython.noop),
+        migrations.RunPython(preserve_existing_asset_sites, migrations.RunPython.noop, atomic=False),
         migrations.RemoveField(
             model_name='asset',
             name='site',

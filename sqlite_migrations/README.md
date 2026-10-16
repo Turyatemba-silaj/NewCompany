@@ -12,6 +12,11 @@ casts and ORM backfills, and materialize fields previously recorded only in
 migration state. PostgreSQL-only legacy repair operations are skipped because
 the SQLite schema is created by the normal model operations.
 
+The MySQL migration package also reuses these overrides. Its own modules replace
+backend-specific data updates. Schema-changing `RunPython` operations explicitly
+use `atomic=False` so MySQL does not wrap DDL in a transaction. SQLite retains the
+outer migration transaction.
+
 Run `python -B scripts/check_sqlite_migrations.py` from the NewCompany directory
 to migrate an in-memory database, preserve a sample client's contract, check
 model columns and foreign keys, and verify the staff login page.

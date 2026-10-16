@@ -18,5 +18,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(repair_invoice_total_amount, migrations.RunPython.noop),
+        migrations.RunPython(repair_invoice_total_amount, migrations.RunPython.noop, atomic=False),
     ]

@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(ensure_shift_date_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_shift_date_column, migrations.RunPython.noop, atomic=False),
         migrations.RunPython(collapse_daily_shifts, migrations.RunPython.noop),
         migrations.RemoveField(
             model_name='shift',

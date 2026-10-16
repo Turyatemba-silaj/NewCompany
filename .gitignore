@@ -1,3 +1,6 @@
 __pycache__/
 *.py[cod]
 backups/
+.env
+.env.*
+*.sqlite3

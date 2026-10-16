@@ -13,7 +13,7 @@ def ensure_invoice_number_column(apps, schema_editor):
 
 
 def backfill_invoice_numbers(apps, schema_editor):
-    if schema_editor.connection.vendor == "sqlite":
+    if schema_editor.connection.vendor in {"sqlite", "mysql"}:
         Invoice = apps.get_model("webroaster", "Invoice")
         for invoice in Invoice.objects.using(schema_editor.connection.alias).all():
             if not invoice.invoice_number:
@@ -51,7 +51,7 @@ class Migration(migrations.Migration):
             ],
             database_operations=[],
         ),
-        migrations.RunPython(ensure_invoice_number_column, migrations.RunPython.noop),
+        migrations.RunPython(ensure_invoice_number_column, migrations.RunPython.noop, atomic=False),
         migrations.RunPython(backfill_invoice_numbers, migrations.RunPython.noop),
     ]
 

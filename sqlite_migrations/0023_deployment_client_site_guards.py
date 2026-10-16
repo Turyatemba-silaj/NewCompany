@@ -58,7 +58,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(ensure_deployment_columns, noop_reverse),
+        migrations.RunPython(ensure_deployment_columns, noop_reverse, atomic=False),
         SQLiteSeparateDatabaseAndState(
             state_operations=[
                 migrations.AddField(
