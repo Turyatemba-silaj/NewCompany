@@ -1,5 +1,8 @@
 # Databases and deployment branches
 
+For the actual Hippo Security deployment history, errors, fixes, and outstanding
+verification, see [Namecheap deployment record](NAMECHEAP_DEPLOYMENT_RECORD.md).
+
 `main` retains the Vercel configuration and its hosted PostgreSQL database.
 `new` uses SQLite for local development and MySQL/MariaDB for Namecheap.
 Changing settings on `new` does not change the `main` branch or move existing data.
