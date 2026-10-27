@@ -107,10 +107,6 @@ ROLE_GROUPS["Head of Finance"] = {
     "models": set(ROLE_GROUPS["Finance Officer"]["models"]),
     "views": set(ROLE_GROUPS["Finance Officer"]["views"]),
 }
-ROLE_GROUPS["General Manager"] = {
-    "models": set().union(*(group["models"] for group in ROLE_GROUPS.values())),
-    "views": set().union(*(group["views"] for group in ROLE_GROUPS.values())),
-}
 MODEL_PERMISSION_NAMES = {
     "attendance": "attendance",
     "employees": "employee",
@@ -154,11 +150,18 @@ MODEL_PERMISSION_NAMES = {
     "expenses": "expense",
 }
 
+ROLE_GROUPS["General Manager"] = {
+    "models": set(MODEL_PERMISSION_NAMES),
+    "views": set(),
+}
+
 ROLE_PERMISSION_ACTIONS = ("view", "add", "change", "delete")
 
 
 def role_group_permission_queryset(group_or_name):
     group_name = getattr(group_or_name, "name", group_or_name) or ""
+    if group_name == "General Manager":
+        return Permission.objects.filter(content_type__app_label="webroaster")
     model_slugs = ROLE_GROUPS.get(group_name, {}).get("models", set())
     model_names = [MODEL_PERMISSION_NAMES[slug] for slug in model_slugs if slug in MODEL_PERMISSION_NAMES]
     codenames = []
@@ -205,6 +208,8 @@ def user_allowed_models(user):
     group_names = user_group_names(user)
     if user.is_superuser:
         return None
+    if "General Manager" in group_names:
+        return None
     restricted_groups = group_names.intersection(ROLE_GROUPS)
     if not restricted_groups:
         return None
@@ -220,6 +225,8 @@ def user_allowed_views(user):
     group_names = user_group_names(user)
     if user.is_superuser:
         return None
+    if "General Manager" in group_names:
+        return None
     restricted_groups = group_names.intersection(ROLE_GROUPS)
     if not restricted_groups:
         return None
@@ -233,6 +240,8 @@ def advance_notification_groups(user):
     if getattr(user, "is_superuser", False):
         return None
     groups = user_group_names(user)
+    if "General Manager" in groups:
+        return None
     if not groups.intersection(ROLE_GROUPS):
         return None
     allowed = set()
@@ -242,8 +251,6 @@ def advance_notification_groups(user):
         allowed.update({"HR Officer", "HR Approver"})
     if "Finance Officer" in groups or "Head of Finance" in groups:
         allowed.add("Finance")
-    if "General Manager" in groups:
-        allowed.update({"Supervisor", "HR Officer", "HR Approver", "Finance"})
     return allowed
 
 
@@ -251,6 +258,8 @@ def leave_notification_groups(user):
     if getattr(user, "is_superuser", False):
         return None
     groups = user_group_names(user)
+    if "General Manager" in groups:
+        return None
     if not groups.intersection(ROLE_GROUPS):
         return None
     allowed = set()
@@ -259,8 +268,6 @@ def leave_notification_groups(user):
         allowed.add("Stand-In")
     if "Human Resources" in groups:
         allowed.add("Approver")
-    if "General Manager" in groups:
-        allowed.update({"Verifier", "Stand-In", "Approver"})
     return allowed
 
 
