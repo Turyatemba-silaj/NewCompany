@@ -22,6 +22,7 @@ class Role(models.Model):
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     department = models.CharField(max_length=50, choices=DEPARTMENT_CHOICES)
     description = models.TextField(blank=True, null=True)
@@ -45,6 +46,7 @@ class Position(models.Model):
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     department = models.CharField(max_length=50, choices=DEPARTMENT_CHOICES)
     grade_level = models.CharField(max_length=50)
@@ -104,6 +106,7 @@ class Employee(models.Model):
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     QUALIFICATION_CHOICES = [
         ('primary', 'Primary'),
@@ -304,7 +307,9 @@ class Employee(models.Model):
             self.department = 'hr'
         elif self.role == 'finance_officer':
             self.department = 'finance'
-        elif self.role in ('manager', 'operations_officer'):
+        elif self.role == 'operations_officer':
+            self.department = 'operations'
+        elif self.role == 'manager' and self.department != 'management':
             self.department = 'operations'
         elif self.role == 'administrator':
             self.department = 'admin'
