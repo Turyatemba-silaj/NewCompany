@@ -107,6 +107,10 @@ ROLE_GROUPS["Head of Finance"] = {
     "models": set(ROLE_GROUPS["Finance Officer"]["models"]),
     "views": set(ROLE_GROUPS["Finance Officer"]["views"]),
 }
+ROLE_GROUPS["General Manager"] = {
+    "models": set().union(*(group["models"] for group in ROLE_GROUPS.values())),
+    "views": set().union(*(group["views"] for group in ROLE_GROUPS.values())),
+}
 MODEL_PERMISSION_NAMES = {
     "attendance": "attendance",
     "employees": "employee",
@@ -238,6 +242,8 @@ def advance_notification_groups(user):
         allowed.update({"HR Officer", "HR Approver"})
     if "Finance Officer" in groups or "Head of Finance" in groups:
         allowed.add("Finance")
+    if "General Manager" in groups:
+        allowed.update({"Supervisor", "HR Officer", "HR Approver", "Finance"})
     return allowed
 
 
@@ -253,6 +259,8 @@ def leave_notification_groups(user):
         allowed.add("Stand-In")
     if "Human Resources" in groups:
         allowed.add("Approver")
+    if "General Manager" in groups:
+        allowed.update({"Verifier", "Stand-In", "Approver"})
     return allowed
 
 
