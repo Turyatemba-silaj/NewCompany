@@ -133,9 +133,9 @@
             if (table.dataset.enhancedTable === "true") return;
             table.dataset.enhancedTable = "true";
             const firstHeader = table.querySelector("thead th:first-child");
-            const columnDefs = [
-                { targets: -1, orderable: false, searchable: false },
-            ];
+            const columnDefs = table.hasAttribute("data-table-sortable-last")
+                ? []
+                : [{ targets: -1, orderable: false, searchable: false }];
             if (firstHeader && firstHeader.querySelector('input[type="checkbox"]')) {
                 columnDefs.push({ targets: 0, orderable: false, searchable: false });
             }

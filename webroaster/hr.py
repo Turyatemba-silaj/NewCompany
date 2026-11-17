@@ -16,7 +16,7 @@ from django.utils import timezone
 from .access import advance_notification_groups, employee_for_user, leave_notification_groups, notification_actor_for_user, require_model_access, require_view_access
 from .finance import sync_salary_table
 from .forms_hr import EmployeeDeploymentTransferForm, LeaveReviewForm
-from .models import AdvanceNotification, DisciplinaryNotification, Document, Employee, JobApplication, Leave, LeaveNotification, Salary, Training
+from .models import AdvanceNotification, DisciplinaryNotification, Document, Employee, Guard, JobApplication, Leave, LeaveNotification, Salary, Training
 from .models import Advance
 from .pdf_utils import simple_pdf_response
 from .views import get_field_label, get_field_value, render_page
@@ -59,6 +59,38 @@ def document_register_context():
         "expired_count": expired_count,
         "expiring_count": expiring_count,
     }
+
+def guard_report(request):
+    require_view_access(request, "guard_report")
+    guards = Guard.objects.select_related("employee").order_by("employee__first_name", "employee__last_name", "employee__employee_number")
+    report_rows = []
+    status_counts = {key: 0 for key, _label in Employee.EMPLOYEE_STATUS_CHOICES}
+    armed_counts = {key: 0 for key, _label in Guard.ARMED_STATUS_CHOICES}
+
+    for guard in guards:
+        employee = guard.employee
+        status_counts[employee.status] = status_counts.get(employee.status, 0) + 1
+        armed_counts[guard.armed_status] = armed_counts.get(guard.armed_status, 0) + 1
+        report_rows.append(
+            {
+                "guard": guard,
+                "employee": employee,
+                "status": employee.get_status_display(),
+                "deployment_area": employee.current_deployment_area,
+                "qualification": guard.get_qualification_display(),
+                "armed_status": guard.get_armed_status_display(),
+            }
+        )
+
+    context = {
+        "title": "Guard List Report",
+        "report_rows": report_rows,
+        "total_guards": len(report_rows),
+        "status_counts": [(dict(Employee.EMPLOYEE_STATUS_CHOICES).get(key, key), count) for key, count in status_counts.items()],
+        "armed_counts": [(dict(Guard.ARMED_STATUS_CHOICES).get(key, key), count) for key, count in armed_counts.items()],
+    }
+    return render_page(request, "webroaster/guard_report.html", context, "guards")
+
 
 def training_certificate(request, pk):
     training = get_object_or_404(Training.objects.select_related("employee"), pk=pk)

@@ -242,6 +242,7 @@ def model_list(request, model_name):
                             "present": present,
                             "reason": request.POST.get(f"reason_{row_key}", ""),
                             "employee": employee,
+                            "recorded_by": request.user,
                             "time_in": shift.start_time,
                             "time_out": shift.end_time,
                             "remarks": "",

@@ -2,7 +2,7 @@
 import io
 import re
 import zipfile
-from datetime import datetime, time
+from datetime import date, datetime, time
 from xml.etree import ElementTree as ET
 
 from django.conf import settings
@@ -31,6 +31,109 @@ from .models import (
     Site,
 )
 from .views import AssetStockGroup, asset_stock_groups, render_page
+
+
+def attendance_query(request):
+    require_model_access(request, "attendance")
+
+    employee_number = request.GET.get("employee_number", "").strip()
+    start_date = request.GET.get("start_date", "").strip()
+    end_date = request.GET.get("end_date", "").strip()
+    query_errors = []
+    parsed_start_date = None
+    parsed_end_date = None
+    report_rows = []
+    submitted = request.GET.get("run") == "1"
+
+    if submitted:
+        if start_date:
+            try:
+                parsed_start_date = date.fromisoformat(start_date)
+            except ValueError:
+                query_errors.append("Enter a valid start date.")
+        if end_date:
+            try:
+                parsed_end_date = date.fromisoformat(end_date)
+            except ValueError:
+                query_errors.append("Enter a valid end date.")
+        if parsed_start_date and parsed_end_date and parsed_start_date > parsed_end_date:
+            query_errors.append("The start date must be on or before the end date.")
+
+        attendances = Attendance.objects.select_related(
+            "site",
+            "shift",
+            "scheduled_guard",
+            "attended_guard",
+            "verified_by",
+            "recorded_by",
+        ).order_by("-date", "site__site_name", "shift__shift_type", "scheduled_guard__employee_number")
+        if employee_number:
+            attendances = attendances.filter(
+                Q(scheduled_guard__employee_number__icontains=employee_number)
+                | Q(attended_guard__employee_number__icontains=employee_number)
+            )
+        if parsed_start_date:
+            attendances = attendances.filter(date__gte=parsed_start_date)
+        if parsed_end_date:
+            attendances = attendances.filter(date__lte=parsed_end_date)
+
+        if not query_errors:
+            report_rows = list(attendances)
+            if request.GET.get("export") == "csv":
+                response = HttpResponse(content_type="text/csv; charset=utf-8")
+                response["Content-Disposition"] = 'attachment; filename="attendance-query.csv"'
+                writer = csv.writer(response)
+                writer.writerow(
+                    [
+                        "Date scheduled",
+                        "Site scheduled",
+                        "Scheduled employee",
+                        "Shift type",
+                        "Attendance",
+                        "Replacement",
+                        "Recorded by",
+                        "Date recorded",
+                    ]
+                )
+                for attendance in report_rows:
+                    replacement = (
+                        str(attendance.attended_guard)
+                        if attendance.attended_guard_id
+                        and attendance.scheduled_guard_id != attendance.attended_guard_id
+                        else "NONE"
+                    )
+                    attendance_label = (
+                        str(attendance.attended_guard)
+                        if attendance.present and attendance.attended_guard_id
+                        else attendance.reason or "Absent"
+                    )
+                    writer.writerow(
+                        [
+                            attendance.date,
+                            attendance.site or "-",
+                            attendance.scheduled_guard or "-",
+                            attendance.shift.get_shift_type_display() if attendance.shift_id else "-",
+                            attendance_label,
+                            replacement,
+                            attendance.recorded_by.get_username() if attendance.recorded_by_id else "-",
+                            timezone.localtime(attendance.created_at).strftime("%Y-%m-%d %H:%M:%S"),
+                        ]
+                    )
+                return response
+
+    context = {
+        "title": "Attendance Query",
+        "employee_number": employee_number,
+        "start_date": start_date,
+        "end_date": end_date,
+        "query_errors": query_errors,
+        "report_rows": report_rows,
+        "submitted": submitted,
+        "total_records": len(report_rows),
+        "export_query": request.GET.urlencode(),
+    }
+    return render_page(request, "webroaster/attendance_query.html", context, "attendance")
+
 
 def get_incident_authority_recipients():
     recipients = []
@@ -1531,4 +1634,3 @@ def incident_report(request):
         "severity_counts": [(dict(Incident.SEVERITY_LEVEL_CHOICES).get(key, key), count) for key, count in severity_counts.items()],
     }
     return render_page(request, "webroaster/incident_report.html", context, "incidents")
-

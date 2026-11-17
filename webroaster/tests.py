@@ -551,6 +551,213 @@ class AttendanceRosterTests(TestCase):
 
         self.assertEqual(Attendance.objects.count(), 1)
 
+    def test_replacement_guard_attendance_is_saved_and_kept_selected(self):
+        region = Region.objects.create(region_name="Replacement Attendance Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Replacement Attendance Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        scheduled_guard = Employee.objects.create(
+            first_name="Scheduled",
+            last_name="Guard",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0722222231",
+            email="scheduled@example.com",
+            address="Kampala",
+            national_id="NIN-SCHEDULED-REPLACEMENT",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        replacement_guard = Employee.objects.create(
+            first_name="Replacement",
+            last_name="Guard",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0722222232",
+            email="replacement@example.com",
+            address="Kampala",
+            national_id="NIN-REPLACEMENT-GUARD",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        site.guards.add(scheduled_guard, replacement_guard)
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+        row_key = f"{deployment.pk}_day_{scheduled_guard.pk}"
+
+        recorder = login_test_staff(self.client, "replacement-attendance")
+        response = self.client.post(
+            "/attendance/",
+            data={
+                "site": site.pk,
+                "mark_date": "2026-07-28",
+                "row_key": row_key,
+                f"deployment_id_{row_key}": deployment.pk,
+                f"scheduled_guard_id_{row_key}": scheduled_guard.pk,
+                f"shift_type_{row_key}": "day",
+                f"present_{row_key}": "on",
+                f"attended_guard_{row_key}": replacement_guard.pk,
+                f"reason_{row_key}": "Replaced",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        attendance = Attendance.objects.get(deployment=deployment, scheduled_guard=scheduled_guard)
+        self.assertTrue(attendance.present)
+        self.assertEqual(attendance.attended_guard, replacement_guard)
+        self.assertEqual(attendance.employee, replacement_guard)
+        self.assertEqual(attendance.recorded_by, recorder)
+        self.assertTrue(attendance.is_payable_shift)
+
+        response = self.client.get(f"/attendance/?site={site.pk}&mark_date=2026-07-28")
+
+        self.assertContains(response, f'<option value="{replacement_guard.pk}" selected>')
+
+        other_site = Site.objects.create(
+            region=region,
+            site_name="Another Attendance Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        other_guard = Employee.objects.create(
+            first_name="Other",
+            last_name="Guard",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0722222233",
+            email="otherguard@example.com",
+            address="Kampala",
+            national_id="NIN-OTHER-ATTENDANCE-GUARD",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        other_site.guards.add(other_guard)
+        Deployment.objects.create(
+            site=other_site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+
+        response = self.client.get(f"/attendance/?site={other_site.pk}&mark_date=2026-07-28")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Another Attendance Site")
+        self.assertContains(response, "Other Guard")
+
+    def test_attendance_query_filters_and_exports_report_records(self):
+        region = Region.objects.create(region_name="Attendance Query Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Attendance Query Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        scheduled_guard = Employee.objects.create(
+            first_name="Query",
+            last_name="Scheduled",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0722222241",
+            email="queryscheduled@example.com",
+            address="Kampala",
+            national_id="NIN-QUERY-SCHEDULED",
+            employee_number="QRY101",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        replacement_guard = Employee.objects.create(
+            first_name="Query",
+            last_name="Replacement",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0722222242",
+            email="queryreplacement@example.com",
+            address="Kampala",
+            national_id="NIN-QUERY-REPLACEMENT",
+            employee_number="QRY102",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+        )
+        site.guards.add(scheduled_guard, replacement_guard)
+        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        deployment = Deployment.objects.create(
+            site=site,
+            shift=shift,
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+        recorder = login_test_staff(self.client, "attendance-query")
+        Attendance.objects.create(
+            deployment=deployment,
+            site=site,
+            shift=shift,
+            scheduled_guard=scheduled_guard,
+            attended_guard=replacement_guard,
+            verified_by=scheduled_guard,
+            recorded_by=recorder,
+            employee=replacement_guard,
+            present=True,
+            date=date(2026, 7, 28),
+            time_in=shift.start_time,
+            time_out=shift.end_time,
+        )
+
+        query = (
+            f"?run=1&employee_number={replacement_guard.employee_number}"
+            "&start_date=2026-07-28&end_date=2026-07-28"
+        )
+        response = self.client.get(f"/attendance/query/{query}")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Attendance Query Site")
+        self.assertContains(response, scheduled_guard.employee_number)
+        self.assertContains(response, replacement_guard.employee_number)
+        self.assertContains(response, "Recorded by")
+        self.assertContains(response, "attendance-query")
+        self.assertContains(response, "Date recorded")
+        self.assertContains(response, "1 record")
+
+        csv_response = self.client.get(f"/attendance/query/{query}&export=csv")
+
+        self.assertEqual(csv_response.status_code, 200)
+        self.assertIn("text/csv", csv_response["Content-Type"])
+        self.assertIn(scheduled_guard.employee_number.encode(), csv_response.content)
+        self.assertIn(replacement_guard.employee_number.encode(), csv_response.content)
+        self.assertIn(b"attendance-query", csv_response.content)
+
+    def test_attendance_query_rejects_reversed_period(self):
+        login_test_staff(self.client, "attendance-query-invalid-period")
+
+        response = self.client.get(
+            "/attendance/query/?run=1&start_date=2026-07-29&end_date=2026-07-28"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "The start date must be on or before the end date.")
+
     def test_attendance_cannot_exceed_required_guards_per_shift(self):
         region = Region.objects.create(region_name="Attendance Capacity Region")
         site = Site.objects.create(
@@ -3661,4 +3868,3 @@ class PasswordManagementTests(TestCase):
         )
 
         self.assertFalse(get_user_model().objects.filter(username=employee.employee_number).exists())
-

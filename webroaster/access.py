@@ -26,7 +26,7 @@ ROLE_GROUPS = {
             "advances",
             "payroll-deductions",
         },
-        "views": {"leave_notifications", "leave_notification_action", "advance_notifications", "advance_notification_action", "payroll"},
+        "views": {"guard_report", "leave_notifications", "leave_notification_action", "advance_notifications", "advance_notification_action", "payroll"},
     },
     "Operations Manager": {
         "models": {

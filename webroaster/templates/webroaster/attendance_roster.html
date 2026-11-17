@@ -122,13 +122,6 @@
         width: 18px;
         height: 18px;
     }
-    .attended-guard-picker {
-        display: none;
-        margin-top: 6px;
-    }
-    .attended-guard-picker.visible {
-        display: block;
-    }
     .roster-table tbody tr:nth-child(odd) td { background: #f7f7f7; }
     .empty-roster td { text-align: center; color: #111827; }
     .roster-footer {
@@ -163,6 +156,7 @@
 <div class="roster-page-title">
     <h1>{{ title }}</h1>
     <div class="export-buttons">
+        <a class="show-guards-btn" href="{% url 'webroaster:attendance_query' %}">Attendance Query</a>
         <a class="show-guards-btn" href="{% url 'webroaster:supervisor_checklist' %}">Supervisor Checklist</a>
         <a class="show-guards-btn" href="{% url 'webroaster:create' 'deployments' %}">Schedule Guards</a>
     </div>
@@ -227,7 +221,8 @@
                     <th>Shift Date</th>
                     <th>Shift Type</th>
                     <th>Present?</th>
-                    <th>Reason</th>
+                    <th>Scheduled Guard Absence Reason</th>
+                    <th>Attended Guard / Replacement</th>
                 </tr>
             </thead>
             <tbody id="roster-body">
@@ -251,19 +246,19 @@
                                     <option value="{{ value }}" {% if value == row.reason %}selected{% endif %}>{{ label }}</option>
                                 {% endfor %}
                             </select>
-                            <div class="attended-guard-picker">
-                                <select name="attended_guard_{{ row.row_key }}" aria-label="Attended Guard">
-                                    <option value="">Attended Guard</option>
-                                    {% for guard in guard_choices %}
-                                        <option value="{{ guard.pk }}" {% if guard.pk|stringformat:"s" == row.attended_guard_id|stringformat:"s" %}selected{% endif %}>{{ guard.employee_number_name }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
+                        </td>
+                        <td>
+                            <select name="attended_guard_{{ row.row_key }}" aria-label="Attended Guard / Replacement">
+                                <option value="">Scheduled Guard</option>
+                                {% for guard in guard_choices %}
+                                    <option value="{{ guard.pk }}" {% if guard.pk|stringformat:"s" == row.attended_guard_id|stringformat:"s" %}selected{% endif %}>{{ guard.employee_number_name }}</option>
+                                {% endfor %}
+                            </select>
                         </td>
                     </tr>
                 {% endfor %}
                 <tr id="empty-roster-row" class="empty-roster">
-                    <td colspan="5">No data available in table</td>
+                    <td colspan="6">No data available in table</td>
                 </tr>
             </tbody>
         </table>
@@ -358,45 +353,10 @@
             });
         }
 
-        rows.forEach(function (row) {
-            const present = row.querySelector("input[type='checkbox'][name^='present_']");
-            const reason = row.querySelector("select[name^='reason_']");
-            const attendedGuard = row.querySelector("select[name^='attended_guard_']");
-            const attendedGuardPicker = row.querySelector(".attended-guard-picker");
-            if (!present || !reason) {
-                return;
-            }
-            function showAttendedGuard() {
-                if (!present.checked && attendedGuardPicker) {
-                    attendedGuardPicker.classList.add("visible");
-                }
-            }
-            function syncReason() {
-                reason.disabled = present.checked;
-                if (present.checked) {
-                    reason.value = "";
-                    if (attendedGuard) {
-                        attendedGuard.value = "";
-                    }
-                }
-                if (attendedGuardPicker) {
-                    const shouldShow = !present.checked && Boolean(reason.value || (attendedGuard && attendedGuard.value));
-                    attendedGuardPicker.classList.toggle("visible", shouldShow);
-                }
-            }
-            reason.addEventListener("focus", showAttendedGuard);
-            reason.addEventListener("click", showAttendedGuard);
-            reason.addEventListener("change", syncReason);
-            present.addEventListener("change", syncReason);
-            syncReason();
-        });
-
         renderTable();
     })();
 </script>
 {% endblock %}
-
-
 
 
 

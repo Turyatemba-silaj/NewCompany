@@ -218,9 +218,13 @@ class TrainingAdmin(ModelAdmin):
 
 @admin.register(Attendance)
 class AttendanceAdmin(ModelAdmin):
-    list_display = ('attendance_id', 'site', 'shift', 'scheduled_guard', 'present', 'attended_guard', 'date')
+    list_display = ('attendance_id', 'site', 'shift', 'scheduled_guard', 'present', 'attended_guard', 'recorded_by', 'date')
     list_filter = ('date', 'site', 'shift', 'present')
     search_fields = ('employee__first_name', 'employee__last_name', 'scheduled_guard__first_name', 'scheduled_guard__last_name', 'attended_guard__first_name', 'attended_guard__last_name')
+
+    def save_model(self, request, obj, form, change):
+        obj.recorded_by = request.user
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Leave)
@@ -575,7 +579,6 @@ for model in (
         admin.site.register(model, PhaseModelAdmin)
     except admin.sites.AlreadyRegistered:
         pass
-
 
 
 

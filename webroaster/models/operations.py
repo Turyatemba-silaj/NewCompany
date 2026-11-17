@@ -1352,6 +1352,7 @@ class Attendance(models.Model):
     ]
     verification_status = models.CharField(max_length=20, choices=VERIFICATION_STATUS_CHOICES, default="pending")
     verified_by = models.ForeignKey("Employee", on_delete=models.SET_NULL, blank=True, null=True, related_name="verified_attendance_records")
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, blank=True, null=True, related_name="recorded_attendance_records")
     verified_at = models.DateTimeField(blank=True, null=True)
     check_in_latitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
     check_in_longitude = models.DecimalField(max_digits=10, decimal_places=7, blank=True, null=True)
@@ -1604,7 +1605,6 @@ def validate_site_guard_assignments(sender, instance, action, pk_set, **kwargs):
     if conflicts:
         guard_messages = [f"{guard} is already assigned to {', '.join(sites)}" for guard, sites in conflicts]
         raise ValidationError("Only relievers may be assigned to more than one site. " + "; ".join(guard_messages))
-
 
 
 

@@ -29,6 +29,7 @@ urlpatterns = [
     path("deployments/upload-roster/", staff_required(operations.duty_roster_upload), name="duty_roster_upload"),
     path("deployments/export-roster/", staff_required(operations.duty_roster_export), name="duty_roster_export"),
     path("deployments/supervisor-checklist/", staff_required(operations.supervisor_checklist), name="supervisor_checklist"),
+    path("attendance/query/", staff_required(operations.attendance_query), name="attendance_query"),
     path("contracts/<int:pk>/report/", staff_required(operations.contract_report), name="contract_report"),
     path("salaries/<int:pk>/payslip/", staff_required(finance.salary_payslip), name="salary_payslip"),
     path("salaries/<int:pk>/payslip/pdf/", staff_required(finance.salary_payslip_pdf), name="salary_payslip_pdf"),
@@ -46,6 +47,7 @@ urlpatterns = [
     path("employees/<int:pk>/profile/", staff_required(hr.employee_profile), name="employee_profile"),
     path("employees/<int:pk>/profile/pdf/", staff_required(hr.employee_profile_pdf), name="employee_profile_pdf"),
     path("employees/<int:pk>/transfer/", staff_required(hr.employee_transfer), name="employee_transfer"),
+    path("guards/report/", staff_required(hr.guard_report), name="guard_report"),
     path("incidents/report/", staff_required(operations.incident_report), name="incident_report"),
     path("incidents/notifications/", staff_required(operations.incident_notifications), name="incident_notifications"),
     path("incidents/<int:pk>/manage/", staff_required(operations.incident_manage), name="incident_manage"),
@@ -79,5 +81,4 @@ urlpatterns = [
     path("<str:model_name>/<int:pk>/edit/", staff_required(records.model_update), name="update"),
     path("<str:model_name>/<int:pk>/delete/", staff_required(records.model_delete), name="delete"),
 ]
-
 
