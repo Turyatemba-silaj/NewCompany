@@ -113,6 +113,23 @@ IS_VERCEL_RUNTIME = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV"
 DEBUG = env_bool("DJANGO_DEBUG", env_bool("DEBUG", not IS_VERCEL_RUNTIME))
 SECRET_KEY = os.environ.get("SECRET_KEY")
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
+
 VERCEL_CONFIGURATION_ERRORS = []
 if not SECRET_KEY:
     if DEBUG:

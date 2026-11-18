@@ -102,12 +102,15 @@ class RegionForm(StyledModelForm):
 class SiteForm(StyledModelForm):
     class Meta:
         model = Site
-        fields = ["region", "client", "contract", "site_name", "site_address", "day_shift_guards", "night_shift_guards", "guards"]
+        fields = ["region", "client", "contract", "site_name", "site_address", "status", "status_reason", "day_shift_guards", "night_shift_guards", "guards"]
         widgets = {"guards": forms.SelectMultiple(attrs={"size": 10})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["client"].required = True
+        self.fields["status"].required = False
+        self.fields["status"].initial = self.instance.status if self.instance.pk else "active"
+        self.fields["status_reason"].label = "Closure / termination reason"
         self.fields["region"].label = "Deployment Area"
         self.fields["region"].required = False
         self.fields["region"].queryset = self.deployment_area_queryset_for_field()
@@ -186,6 +189,8 @@ class SiteForm(StyledModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
+        if not cleaned_data.get("status"):
+            cleaned_data["status"] = self.instance.status if self.instance.pk else "active"
         contract = cleaned_data.get("contract")
         client = cleaned_data.get("client")
         day_shift_guards = cleaned_data.get("day_shift_guards") or 0

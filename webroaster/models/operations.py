@@ -240,6 +240,12 @@ class Region(models.Model):
 
 class Site(models.Model):
     """Manages client sites/locations"""
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("closed", "Closed"),
+        ("terminated", "Terminated"),
+    ]
+
     site_id = models.AutoField(primary_key=True)
     site_code = models.CharField(max_length=40, unique=True, blank=True, null=True, editable=False)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, blank=True, null=True, related_name='sites')
@@ -247,6 +253,8 @@ class Site(models.Model):
     region = models.ForeignKey(Region, on_delete=models.SET_NULL, blank=True, null=True, related_name='sites')
     site_name = models.CharField(max_length=255)
     site_address = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="active")
+    status_reason = models.TextField(blank=True, default="")
     day_shift_guards = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     night_shift_guards = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     guards = models.ManyToManyField('Employee', blank=True, related_name='assigned_sites')
@@ -272,6 +280,8 @@ class Site(models.Model):
 
     def clean(self):
         super().clean()
+        if self.status in ("closed", "terminated") and not self.status_reason.strip():
+            raise ValidationError({"status_reason": "Enter a reason for closing or terminating this site."})
         if not self.region_id:
             self.region = self.infer_region_from_location()
         if not self.region_id:

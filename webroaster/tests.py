@@ -52,6 +52,80 @@ class EmployeeConfigTests(SimpleTestCase):
         self.assertIn("current_deployment_area", config.get("detail_fields", []))
 
 
+class SiteContractDashboardTests(TestCase):
+    def setUp(self):
+        login_test_staff(self.client, "site-contract-dashboard")
+        self.client_record = Client.objects.create(
+            client_name="Dashboard Client",
+            contact_person="Site Contact",
+            phone_number="0700000000",
+            email="site.contact@example.com",
+            address="Kampala",
+        )
+        self.region = Region.objects.create(region_name="Dashboard Region")
+        self.today = timezone.localdate()
+
+    def make_contract(self, end_date, status="active", start_date=None):
+        return Contract.objects.create(
+            client=self.client_record,
+            contract_start_date=start_date or self.today - timedelta(days=30),
+            contract_end_date=end_date,
+            contract_status=status,
+        )
+
+    def test_dashboard_separates_active_expiring_and_closed_contracts_and_sites(self):
+        expiring = self.make_contract(self.today + timedelta(days=30))
+        self.make_contract(self.today + timedelta(days=60))
+        self.make_contract(self.today + timedelta(days=100), status="terminated")
+        self.make_contract(self.today - timedelta(days=1))
+        Site.objects.create(
+            client=self.client_record,
+            contract=expiring,
+            region=self.region,
+            site_name="Closed Site",
+            site_address="Kampala",
+            status="closed",
+            status_reason="Client ended the service.",
+        )
+        Site.objects.create(
+            client=self.client_record,
+            contract=expiring,
+            region=self.region,
+            site_name="Terminated Site",
+            site_address="Kampala",
+            status="terminated",
+            status_reason="Contract was terminated.",
+        )
+
+        response = self.client.get(reverse("webroaster:site_contract_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["active_contract_count"], 2)
+        self.assertEqual(response.context["expiring_contract_count"], 1)
+        self.assertEqual(response.context["closed_contract_count"], 2)
+        self.assertEqual(response.context["closed_site_count"], 2)
+        self.assertContains(response, "Client ended the service.")
+        self.assertContains(response, "Contract was terminated.")
+        self.assertContains(response, 'class="status-badge expiring"')
+        self.assertContains(response, 'class="status-badge active"')
+        self.assertContains(response, 'class="status-badge closed"')
+
+    def test_site_form_requires_reason_when_closing_or_terminating(self):
+        form = SiteForm(data={
+            "region": self.region.pk,
+            "client": self.client_record.pk,
+            "site_name": "Needs Closure Reason",
+            "site_address": "Kampala",
+            "status": "terminated",
+            "status_reason": "",
+            "day_shift_guards": 0,
+            "night_shift_guards": 0,
+        })
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("status_reason", form.errors)
+
+
 class EmployeePhotoUploadTests(TestCase):
     def test_employee_form_saves_passport_photo(self):
         upload = SimpleUploadedFile(
@@ -587,7 +661,7 @@ class AttendanceRosterTests(TestCase):
             status="active",
         )
         site.guards.add(scheduled_guard, replacement_guard)
-        shift = Shift.objects.create(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=0)
+        shift = Shift.objects.create(start_time=time(8, 0), end_time=time(17, 0), hours_per_shift=0)
         deployment = Deployment.objects.create(
             site=site,
             shift=shift,
@@ -595,6 +669,16 @@ class AttendanceRosterTests(TestCase):
             start_date=date(2026, 7, 28),
             end_date=date(2026, 7, 28),
             status="active",
+        )
+        Attendance.objects.create(
+            deployment=deployment,
+            site=site,
+            shift=shift,
+            scheduled_guard=scheduled_guard,
+            employee=scheduled_guard,
+            present=False,
+            date=date(2026, 7, 28),
+            time_in=shift.start_time,
         )
         row_key = f"{deployment.pk}_day_{scheduled_guard.pk}"
 

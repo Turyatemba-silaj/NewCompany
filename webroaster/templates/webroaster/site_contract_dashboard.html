@@ -1,0 +1,120 @@
+{% extends "webroaster/base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+    .site-contract-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 20px; }
+    .site-contract-kpi, .site-contract-panel { background: #fff; border: 1px solid #dfe5ee; border-radius: 12px; box-shadow: 0 4px 14px rgba(15, 47, 102, .06); }
+    .site-contract-kpi { border-left: 5px solid #15803d; padding: 16px; }
+    .site-contract-kpi.amber { border-left-color: #d97706; }
+    .site-contract-kpi.red { border-left-color: #dc2626; }
+    .site-contract-kpi span { color: #64748b; display: block; font-size: 13px; }
+    .site-contract-kpi strong { display: block; font-size: 28px; margin-top: 5px; }
+    .site-contract-panel { margin: 16px 0; overflow: hidden; }
+    .site-contract-panel h2 { font-size: 18px; margin: 0; }
+    .site-contract-panel header { align-items: center; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; padding: 16px; }
+    .site-contract-panel header p { color: #64748b; font-size: 13px; margin: 4px 0 0; }
+    .site-contract-table-wrap { overflow-x: auto; }
+    .site-contract-table { border-collapse: collapse; min-width: 720px; width: 100%; }
+    .site-contract-table th, .site-contract-table td { border-bottom: 1px solid #e8edf3; padding: 11px 14px; text-align: left; vertical-align: top; }
+    .site-contract-table th { background: #f8fafc; color: #475569; font-size: 12px; }
+    .site-contract-table td { font-size: 13px; }
+    .site-contract-table tr:last-child td { border-bottom: 0; }
+    .status-badge { border-radius: 999px; display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 9px; white-space: nowrap; }
+    .status-badge.active { background: #dcfce7; color: #166534; }
+    .status-badge.expiring { background: #fef3c7; color: #92400e; }
+    .status-badge.closed, .status-badge.terminated { background: #fee2e2; color: #991b1b; }
+    .empty-row { color: #64748b; padding: 20px !important; text-align: center !important; }
+    @media (max-width: 640px) { .site-contract-panel header { align-items: flex-start; flex-direction: column; gap: 8px; } }
+</style>
+
+<div class="topbar">
+    <div><h1>{{ title }}</h1><p>Contract status and site closures as of {{ today|date:"j M Y" }}.</p></div>
+    <div class="actions">
+        <a class="btn" href="{% url 'webroaster:list' 'contracts' %}">Manage Contracts</a>
+        <a class="btn primary" href="{% url 'webroaster:list' 'sites' %}">Manage Sites</a>
+    </div>
+</div>
+
+<div class="site-contract-kpis">
+    <article class="site-contract-kpi"><span>Active contracts</span><strong>{{ active_contract_count }}</strong></article>
+    <article class="site-contract-kpi amber"><span>Expiring within 30 days</span><strong>{{ expiring_contract_count }}</strong></article>
+    <article class="site-contract-kpi red"><span>Closed / terminated contracts</span><strong>{{ closed_contract_count }}</strong></article>
+    <article class="site-contract-kpi red"><span>Closed / terminated sites</span><strong>{{ closed_site_count }}</strong></article>
+</div>
+
+<section class="site-contract-panel">
+    <header><div><h2>Expiring contracts</h2><p>Active contracts ending by {{ expiry_cutoff|date:"j M Y" }}.</p></div><span class="status-badge expiring">Attention</span></header>
+    <div class="site-contract-table-wrap"><table class="site-contract-table">
+        <thead><tr><th>Contract</th><th>Client</th><th>Contact</th><th>End date</th><th>Status</th></tr></thead>
+        <tbody>
+            {% for contract in expiring_contracts %}
+                <tr>
+                    <td>{{ contract.contract_number|default:contract.contract_id }}</td>
+                    <td>{{ contract.client.client_name }}</td>
+                    <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
+                    <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
+                    <td><span class="status-badge expiring">Expiring soon</span></td>
+                </tr>
+            {% empty %}<tr><td class="empty-row" colspan="5">No active contracts are expiring in the next 30 days.</td></tr>{% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section class="site-contract-panel">
+    <header><div><h2>Active contracts</h2><p>Current contracts, including those listed above as expiring soon.</p></div><span class="status-badge active">Active</span></header>
+    <div class="site-contract-table-wrap"><table class="site-contract-table">
+        <thead><tr><th>Contract</th><th>Client</th><th>Contact</th><th>Start date</th><th>End date</th><th>Status</th></tr></thead>
+        <tbody>
+            {% for contract in active_contracts %}
+                <tr>
+                    <td>{{ contract.contract_number|default:contract.contract_id }}</td>
+                    <td>{{ contract.client.client_name }}</td>
+                    <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
+                    <td>{{ contract.contract_start_date|date:"j M Y" }}</td>
+                    <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
+                    <td>{% if contract.contract_end_date <= expiry_cutoff %}<span class="status-badge expiring">Expiring soon</span>{% else %}<span class="status-badge active">Active</span>{% endif %}</td>
+                </tr>
+            {% empty %}<tr><td class="empty-row" colspan="6">No current active contracts.</td></tr>{% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section class="site-contract-panel">
+    <header><div><h2>Closed / terminated contracts</h2><p>Contracts marked expired or terminated, and contracts past their end date.</p></div><span class="status-badge closed">Closed</span></header>
+    <div class="site-contract-table-wrap"><table class="site-contract-table">
+        <thead><tr><th>Contract</th><th>Client</th><th>Contact</th><th>End date</th><th>Contract status</th></tr></thead>
+        <tbody>
+            {% for contract in closed_contracts %}
+                <tr>
+                    <td>{{ contract.contract_number|default:contract.contract_id }}</td>
+                    <td>{{ contract.client.client_name }}</td>
+                    <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
+                    <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
+                    <td><span class="status-badge closed">{{ contract.get_contract_status_display }}</span></td>
+                </tr>
+            {% empty %}<tr><td class="empty-row" colspan="5">No closed or terminated contracts.</td></tr>{% endfor %}
+        </tbody>
+    </table></div>
+</section>
+
+<section class="site-contract-panel">
+    <header><div><h2>Closed / terminated sites</h2><p>Every site closure includes a recorded reason.</p></div><span class="status-badge closed">Site register</span></header>
+    <div class="site-contract-table-wrap"><table class="site-contract-table">
+        <thead><tr><th>Site</th><th>Client</th><th>Contract</th><th>Status</th><th>Reason</th><th>Action</th></tr></thead>
+        <tbody>
+            {% for site in closed_sites %}
+                <tr>
+                    <td>{{ site.site_name }}</td>
+                    <td>{{ site.client|default:"-" }}</td>
+                    <td>{{ site.contract.contract_number|default:site.contract|default:"-" }}</td>
+                    <td><span class="status-badge {{ site.status }}">{{ site.get_status_display }}</span></td>
+                    <td>{{ site.status_reason }}</td>
+                    <td><a class="action-btn secondary" href="{% url 'webroaster:update' 'sites' site.pk %}">Edit</a></td>
+                </tr>
+            {% empty %}<tr><td class="empty-row" colspan="6">No closed or terminated sites.</td></tr>{% endfor %}
+        </tbody>
+    </table></div>
+</section>
+{% endblock %}

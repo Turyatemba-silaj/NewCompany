@@ -1,7 +1,7 @@
 ﻿import csv
 import io
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.contrib import messages
 from django.core.exceptions import FieldDoesNotExist, ValidationError
@@ -35,7 +35,7 @@ from .forms_finance import InvoiceBillableItemFormSet, SupplierProformaInvoiceIt
 from .forms_hr import DocumentForm
 from .forms_operations import ContractDeliverableFormSet
 from .hr import document_register_context, notify_disciplinary_employee
-from .models import Asset, Attendance, Deployment, Document, Employee, Invoice, ProcurementRequisition, Site, SupplierProformaInvoice
+from .models import Asset, Attendance, Contract, Deployment, Document, Employee, Invoice, ProcurementRequisition, Site, SupplierProformaInvoice
 from .operations import deployment_shift_guards, load_site_scheduled_guards, rotating_available_guards, site_roster_staff
 from .views import (
     asset_stock_groups,
@@ -133,6 +133,40 @@ def incident_guard_choices_by_site():
     return choices_by_site
 
 
+def site_contract_dashboard(request):
+    require_model_access(request, "sites")
+
+    today = timezone.localdate()
+    expiry_cutoff = today + timedelta(days=30)
+    active_contracts = Contract.objects.select_related("client").filter(
+        contract_status="active",
+        contract_start_date__lte=today,
+        contract_end_date__gte=today,
+    ).order_by("contract_end_date", "client__client_name")
+    expiring_contracts = active_contracts.filter(contract_end_date__lte=expiry_cutoff)
+    closed_contracts = Contract.objects.select_related("client").filter(
+        Q(contract_status__in=("expired", "terminated")) | Q(contract_end_date__lt=today)
+    ).distinct().order_by("-contract_end_date", "client__client_name")
+    closed_sites = Site.objects.select_related("client", "contract").filter(
+        status__in=("closed", "terminated")
+    ).order_by("status", "client__client_name", "site_name")
+
+    context = {
+        "title": "Site & Contract Dashboard",
+        "today": today,
+        "expiry_cutoff": expiry_cutoff,
+        "active_contracts": active_contracts,
+        "expiring_contracts": expiring_contracts,
+        "closed_contracts": closed_contracts,
+        "closed_sites": closed_sites,
+        "active_contract_count": active_contracts.count(),
+        "expiring_contract_count": expiring_contracts.count(),
+        "closed_contract_count": closed_contracts.count(),
+        "closed_site_count": closed_sites.count(),
+    }
+    return render_page(request, "webroaster/site_contract_dashboard.html", context, "sites")
+
+
 def model_list(request, model_name):
     if model_name == "payroll":
         require_model_access(request, model_name)
@@ -196,23 +230,26 @@ def model_list(request, model_name):
                 ).filter(Q(end_date__isnull=True) | Q(end_date__gte=mark_day)).first()
                 if not deployment or shift_type not in deployment.covered_shift_types:
                     continue
-                shift = get_default_shift(shift_type)
-
                 scheduled_guard = guard_choices.filter(pk=scheduled_guard_id).first()
                 if scheduled_guard is None:
                     continue
+                current_attendance = Attendance.objects.filter(
+                    deployment=deployment,
+                    date=mark_day,
+                    shift__shift_type=shift_type,
+                    scheduled_guard=scheduled_guard,
+                ).first()
+                shift = (
+                    current_attendance.shift
+                    if current_attendance
+                    else deployment.shift_for_type(shift_type) or get_default_shift(shift_type)
+                )
                 present = request.POST.get(f"present_{row_key}") == "on"
                 attended_guard_id = request.POST.get(f"attended_guard_{row_key}") or None
                 attended_guard = guard_choices.filter(pk=attended_guard_id).first() if attended_guard_id and attended_guard_id.isdigit() and int(attended_guard_id) in site_guard_ids else None
                 if present and attended_guard is None:
                     attended_guard = scheduled_guard
                 employee = attended_guard or scheduled_guard
-                current_attendance = Attendance.objects.filter(
-                    deployment=deployment,
-                    date=mark_day,
-                    shift=shift,
-                    scheduled_guard=scheduled_guard,
-                ).first()
                 if present:
                     required_guards = selected_site.day_shift_guards if shift_type == "day" else selected_site.night_shift_guards
                     present_attendance = Attendance.objects.filter(

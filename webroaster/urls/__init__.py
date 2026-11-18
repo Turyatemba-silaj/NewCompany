@@ -24,6 +24,7 @@ urlpatterns = [
     path("careers/", public.careers, name="careers"),
     path("careers/<int:pk>/", public.job_detail, name="job_detail"),
     path("dashboard/", staff_required(views.home), name="home"),
+    path("site-contract-dashboard/", staff_required(records.site_contract_dashboard), name="site_contract_dashboard"),
     path("staff/password-management/", staff_required(accounts.password_management), name="password_management"),
     path("staff/password-management/<int:user_id>/", staff_required(accounts.password_management_action), name="password_management_action"),
     path("deployments/upload-roster/", staff_required(operations.duty_roster_upload), name="duty_roster_upload"),
