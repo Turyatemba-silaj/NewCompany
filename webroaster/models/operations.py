@@ -31,6 +31,8 @@ class Client(models.Model):
 
 class Contract(models.Model):
     """Manages contracts for clients"""
+    EXPIRY_NOTICE_DAYS = 30
+
     contract_id = models.AutoField(primary_key=True)
     contract_number = models.CharField(max_length=30, unique=True, blank=True, null=True, editable=False)
     client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='contracts')
@@ -55,6 +57,20 @@ class Contract(models.Model):
     @property
     def client_name(self):
         return self.client.client_name
+
+    @property
+    def contract_display_status(self):
+        if self.contract_status == "terminated":
+            return "Terminated"
+
+        today = timezone.localdate()
+        if self.contract_start_date > today:
+            return "Pending"
+        if self.contract_end_date < today:
+            return "Expired"
+        if self.contract_end_date <= today + timedelta(days=self.EXPIRY_NOTICE_DAYS):
+            return "Expiring soon"
+        return "Active"
 
     @property
     def contact_person(self):

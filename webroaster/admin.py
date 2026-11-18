@@ -62,7 +62,7 @@ class ContractDeliverableInline(TabularInline):
 
 @admin.register(Contract)
 class ContractAdmin(ModelAdmin):
-    list_display = ('contract_id', 'contract_number', 'client', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'remaining_guards', 'rate_per_guard', 'contract_value', 'contract_status')
+    list_display = ('contract_id', 'contract_number', 'client', 'day_shift_guards', 'night_shift_guards', 'number_of_guards', 'remaining_guards', 'rate_per_guard', 'contract_value', 'contract_display_status')
     list_filter = ('contract_status', 'contract_start_date', 'contract_end_date', 'client')
     search_fields = ('contract_number', 'client__client_name', 'client__contact_person', 'client__email')
     readonly_fields = ('contract_number', 'number_of_guards', 'site_required_guards', 'assigned_guards_count', 'remaining_guards', 'contract_value')

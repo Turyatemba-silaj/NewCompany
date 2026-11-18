@@ -55,7 +55,7 @@
                     <td>{{ contract.client.client_name }}</td>
                     <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
                     <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
-                    <td><span class="status-badge expiring">Expiring soon</span></td>
+                    <td><span class="status-badge expiring">{{ contract.contract_display_status }}</span></td>
                 </tr>
             {% empty %}<tr><td class="empty-row" colspan="5">No active contracts are expiring in the next 30 days.</td></tr>{% endfor %}
         </tbody>
@@ -74,7 +74,7 @@
                     <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
                     <td>{{ contract.contract_start_date|date:"j M Y" }}</td>
                     <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
-                    <td>{% if contract.contract_end_date <= expiry_cutoff %}<span class="status-badge expiring">Expiring soon</span>{% else %}<span class="status-badge active">Active</span>{% endif %}</td>
+                    <td>{% if contract.contract_display_status == "Expiring soon" %}<span class="status-badge expiring">{{ contract.contract_display_status }}</span>{% else %}<span class="status-badge active">{{ contract.contract_display_status }}</span>{% endif %}</td>
                 </tr>
             {% empty %}<tr><td class="empty-row" colspan="6">No current active contracts.</td></tr>{% endfor %}
         </tbody>
@@ -92,7 +92,7 @@
                     <td>{{ contract.client.client_name }}</td>
                     <td>{{ contract.client.contact_person }}<br>{{ contract.client.phone_number }}</td>
                     <td>{{ contract.contract_end_date|date:"j M Y" }}</td>
-                    <td><span class="status-badge closed">{{ contract.get_contract_status_display }}</span></td>
+                    <td><span class="status-badge closed">{{ contract.contract_display_status }}</span></td>
                 </tr>
             {% empty %}<tr><td class="empty-row" colspan="5">No closed or terminated contracts.</td></tr>{% endfor %}
         </tbody>

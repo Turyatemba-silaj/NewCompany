@@ -78,6 +78,7 @@ class SiteContractDashboardTests(TestCase):
         self.make_contract(self.today + timedelta(days=60))
         self.make_contract(self.today + timedelta(days=100), status="terminated")
         self.make_contract(self.today - timedelta(days=1))
+        date_controls_status = self.make_contract(self.today + timedelta(days=60), status="expired")
         Site.objects.create(
             client=self.client_record,
             contract=expiring,
@@ -100,15 +101,23 @@ class SiteContractDashboardTests(TestCase):
         response = self.client.get(reverse("webroaster:site_contract_dashboard"))
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.context["active_contract_count"], 2)
+        self.assertEqual(response.context["active_contract_count"], 3)
         self.assertEqual(response.context["expiring_contract_count"], 1)
         self.assertEqual(response.context["closed_contract_count"], 2)
         self.assertEqual(response.context["closed_site_count"], 2)
+        self.assertEqual(date_controls_status.contract_display_status, "Active")
+        self.assertEqual(response.context["closed_contracts"].filter(contract_end_date=self.today - timedelta(days=1)).get().contract_display_status, "Expired")
         self.assertContains(response, "Client ended the service.")
         self.assertContains(response, "Contract was terminated.")
         self.assertContains(response, 'class="status-badge expiring"')
         self.assertContains(response, 'class="status-badge active"')
         self.assertContains(response, 'class="status-badge closed"')
+
+    def test_sites_module_shows_lifecycle_fields(self):
+        config = get_config("sites")
+
+        self.assertIn("status", config["fields"])
+        self.assertIn("status_reason", config["fields"])
 
     def test_site_form_requires_reason_when_closing_or_terminating(self):
         form = SiteForm(data={

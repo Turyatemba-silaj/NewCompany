@@ -137,15 +137,16 @@ def site_contract_dashboard(request):
     require_model_access(request, "sites")
 
     today = timezone.localdate()
-    expiry_cutoff = today + timedelta(days=30)
-    active_contracts = Contract.objects.select_related("client").filter(
-        contract_status="active",
+    expiry_cutoff = today + timedelta(days=Contract.EXPIRY_NOTICE_DAYS)
+    active_contracts = Contract.objects.select_related("client").exclude(
+        contract_status="terminated",
+    ).filter(
         contract_start_date__lte=today,
         contract_end_date__gte=today,
     ).order_by("contract_end_date", "client__client_name")
     expiring_contracts = active_contracts.filter(contract_end_date__lte=expiry_cutoff)
     closed_contracts = Contract.objects.select_related("client").filter(
-        Q(contract_status__in=("expired", "terminated")) | Q(contract_end_date__lt=today)
+        Q(contract_status="terminated") | Q(contract_end_date__lt=today)
     ).distinct().order_by("-contract_end_date", "client__client_name")
     closed_sites = Site.objects.select_related("client", "contract").filter(
         status__in=("closed", "terminated")

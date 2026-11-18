@@ -49,6 +49,12 @@ class ContractForm(DateRangeValidationMixin, StyledModelForm):
         fields = "__all__"
         widgets = {"contract_start_date": DATE_WIDGET, "contract_end_date": DATE_WIDGET}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["contract_status"].help_text = (
+            "Displayed status is calculated from the contract dates; termination remains a manual override."
+        )
+
 
 class ContractDeliverableForm(StyledModelForm):
     class Meta:
