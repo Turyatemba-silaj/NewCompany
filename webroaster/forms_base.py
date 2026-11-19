@@ -18,10 +18,19 @@ DEFAULT_SHIFT_TIMES = {
 
 def get_default_shift(shift_type):
     start_time, end_time = DEFAULT_SHIFT_TIMES[shift_type]
+    existing_shift = Shift.objects.filter(
+        start_time=start_time,
+        end_time=end_time,
+    ).order_by("shift_id").first()
+    if existing_shift:
+        return existing_shift
+
+    template = Shift(start_time=start_time, end_time=end_time)
     shift, _ = Shift.objects.get_or_create(
         start_time=start_time,
         end_time=end_time,
-        defaults={"hours_per_shift": 0, "shift_type": shift_type},
+        hours_per_shift=template.calculate_hours_per_shift(),
+        defaults={"shift_type": shift_type},
     )
     return shift
 

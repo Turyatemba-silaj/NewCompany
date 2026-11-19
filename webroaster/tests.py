@@ -16,6 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .finance import salary_payslip_context
+from .forms_base import get_default_shift
 from .forms_finance import AdvanceForm, ExpenseForm, InvoiceForm
 from .views import get_config
 from .forms_hr import DisciplinaryActionForm, EmployeeForm, PerformanceEvaluationForm
@@ -547,6 +548,33 @@ class DeploymentAutomationTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["name"], "Shortage Guard")
 class AttendanceRosterTests(TestCase):
+    def test_attendance_page_handles_duplicate_default_shift_times(self):
+        region = Region.objects.create(region_name="Duplicate Shift Attendance Region")
+        site = Site.objects.create(
+            region=region,
+            site_name="Duplicate Shift Attendance Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+        )
+        shifts = Shift.objects.bulk_create([
+            Shift(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=Decimal("1.00"), shift_type="day"),
+            Shift(start_time=time(7, 0), end_time=time(18, 0), hours_per_shift=Decimal("2.00"), shift_type="day"),
+        ])
+        Deployment.objects.create(
+            site=site,
+            shift=shifts[0],
+            shift_coverage="day",
+            start_date=date(2026, 7, 28),
+            end_date=date(2026, 7, 28),
+            status="active",
+        )
+
+        login_test_staff(self.client, "duplicate-shift-attendance")
+        response = self.client.get(f"/attendance/?site={site.pk}&mark_date=2026-07-28")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(get_default_shift("day").pk, shifts[0].pk)
+
     def test_attendance_uses_site_assigned_guards_without_deployment_area(self):
         region = Region.objects.create(region_name="Attendance Region")
         site = Site.objects.create(
