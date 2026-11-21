@@ -1384,6 +1384,20 @@ class Expense(models.Model):
     expense_id = models.AutoField(primary_key=True)
     expense_code = models.CharField(max_length=30, unique=True, blank=True, null=True, editable=False)
     budget = models.ForeignKey(Budget, on_delete=models.SET_NULL, null=True, blank=True, related_name='expenses')
+    contract = models.ForeignKey(
+        "Contract",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="expenses",
+    )
+    site = models.ForeignKey(
+        "Site",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="expenses",
+    )
 
     CATEGORY_CHOICES = Budget.CATEGORY_CHOICES
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES)

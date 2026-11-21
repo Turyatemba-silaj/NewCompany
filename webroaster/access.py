@@ -46,6 +46,7 @@ ROLE_GROUPS = {
             "asset_assignment_report",
             "asset_store_report",
             "contract_report",
+            "contract_management_report",
             "duty_roster_export",
             "duty_roster_upload",
             "incident_notifications",
@@ -82,6 +83,7 @@ ROLE_GROUPS = {
         },
         "views": {
             "aging_report",
+            "contract_management_report",
             "advance_notifications",
             "advance_notification_action",
             "budget_notifications",

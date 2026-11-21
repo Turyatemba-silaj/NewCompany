@@ -1,0 +1,113 @@
+{% extends "webroaster/base.html" %}
+{% load format_values %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<style>
+.contract-report { background:#fff; border:1px solid var(--line); padding:18px; overflow-x:auto; }
+.contract-filter { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin-bottom:14px; }
+.contract-filter label { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.contract-filter select,.contract-filter input { padding:7px; border:1px solid var(--line); }
+.contract-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; }
+.contract-tabs a { padding:7px 10px; border:1px solid var(--line); border-radius:4px; text-decoration:none; }
+.contract-tabs a.active { background:var(--primary); color:#fff; }
+.contract-table { width:100%; border-collapse:collapse; min-width:1050px; }
+.contract-table th,.contract-table td { border:1px solid var(--line); padding:7px; vertical-align:top; }
+.contract-table th { background:#f3f6f9; }
+.money { text-align:right; white-space:nowrap; }
+.alert-expire { color:#b45309; font-weight:700; }
+.negative { color:#b91c1c; font-weight:700; }
+.positive { color:#166534; font-weight:700; }
+@media print { .sidebar,.top-strip,.contract-filter,.contract-tabs,.report-actions{display:none!important}.app-shell{display:block}.main-area{width:100%}.contract-report{border:0;padding:0}.contract-table{min-width:0}}
+</style>
+
+<div class="report-actions" style="display:flex;justify-content:flex-end;margin-bottom:10px">
+  <a class="btn" href="?section={{ section }}&reporting_period={{ reporting_period }}&export=csv{% if selected_contract %}&contract={{ selected_contract.pk }}{% endif %}">Download CSV</a>
+</div>
+
+<section class="contract-report">
+  <h1>{{ title }}</h1>
+
+  <form class="contract-filter" method="get">
+    <input type="hidden" name="section" value="{{ section }}">
+    <label>Client
+      <select name="client">
+        <option value="">All clients</option>
+        {% for client in clients %}<option value="{{ client.pk }}" {% if request.GET.client == client.pk|stringformat:'s' %}selected{% endif %}>{{ client.client_name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Site
+      <select name="site">
+        <option value="">All sites</option>
+        {% for site in sites %}<option value="{{ site.pk }}" {% if request.GET.site == site.pk|stringformat:'s' %}selected{% endif %}>{{ site.site_name }} - {{ site.client }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Contract Status
+      <select name="status">
+        <option value="">All statuses</option>
+        <option value="active" {% if request.GET.status == 'active' %}selected{% endif %}>Active</option>
+        <option value="pending" {% if request.GET.status == 'pending' %}selected{% endif %}>Pending</option>
+        <option value="expired" {% if request.GET.status == 'expired' %}selected{% endif %}>Expired</option>
+        <option value="terminated" {% if request.GET.status == 'terminated' %}selected{% endif %}>Terminated</option>
+      </select>
+    </label>
+    <label>Reporting Period
+      <input type="month" name="reporting_period" value="{{ reporting_period }}">
+    </label>
+    <button class="btn primary" type="submit">Apply Filters</button>
+  </form>
+
+  <nav class="contract-tabs">
+    <a href="?section=summary&reporting_period={{ reporting_period }}" class="{% if section == 'summary' %}active{% endif %}">Management Summary</a>
+    <a href="?section=expiry&reporting_period={{ reporting_period }}" class="{% if section == 'expiry' %}active{% endif %}">Expiry & Renewal</a>
+    <a href="?section=profitability&reporting_period={{ reporting_period }}" class="{% if section == 'profitability' %}active{% endif %}">Profitability</a>
+    <a href="?section=billing&reporting_period={{ reporting_period }}" class="{% if section == 'billing' %}active{% endif %}">Billing & Collections</a>
+    <a href="?section=staffing&reporting_period={{ reporting_period }}" class="{% if section == 'staffing' %}active{% endif %}">Staffing & Coverage</a>
+    <a href="?section=performance&reporting_period={{ reporting_period }}" class="{% if section == 'performance' %}active{% endif %}">Service Performance</a>
+    <a href="?section=variations&reporting_period={{ reporting_period }}" class="{% if section == 'variations' %}active{% endif %}">Variations</a>
+  </nav>
+
+  {% if section == 'summary' %}
+  <table class="contract-table">
+    <thead><tr><th>Contract No.</th><th>Client</th><th>Sites</th><th>Status</th><th>Expiry Date</th><th>Days Remaining</th><th>Renewal Status</th><th class="money">Revenue (UGX)</th><th class="money">Service Costs (UGX)</th><th class="money">Profit (UGX)</th><th class="money">Margin (%)</th><th class="money">Outstanding (UGX)</th></tr></thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td><a href="{% url 'webroaster:contract_report' row.contract.pk %}">{{ row.contract.contract_number }}</a></td>
+        <td>{{ row.client.client_name }}</td><td>{{ row.sites }}</td>
+        <td class="{% if row.days_remaining <= 90 %}alert-expire{% endif %}">{{ row.status }}</td>
+        <td>{{ row.expiry_date }}</td><td>{{ row.days_remaining }}</td><td>{{ row.renewal_status }}</td>
+        <td class="money">{{ row.revenue|thousands }}</td><td class="money">{{ row.service_costs|thousands }}</td>
+        <td class="money {% if row.profit < 0 %}negative{% else %}positive{% endif %}">{{ row.profit|thousands }}</td><td class="money">{{ row.margin|thousands }}%</td><td class="money">{{ row.outstanding|thousands }}</td>
+      </tr>
+    {% empty %}<tr><td colspan="12">No contracts match the selected filters.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  {% elif section == 'expiry' %}
+  <table class="contract-table"><thead><tr><th>Client</th><th>Contract</th><th>Expiry Date</th><th>Days Remaining</th><th>Notice Deadline</th><th>Renewal Status</th><th>Responsible Officer</th><th>Next Action</th></tr></thead><tbody>
+  {% for row in rows %}<tr><td>{{ row.client.client_name }}</td><td>{{ row.contract.contract_number }}</td><td>{{ row.expiry_date }}</td><td class="{% if row.days_remaining <= 90 %}alert-expire{% endif %}">{{ row.days_remaining }}</td><td>{{ row.notice_deadline }}</td><td>{{ row.renewal_status }}</td><td>{{ row.responsible_officer|default:"-" }}</td><td>{{ row.next_action }}{% if row.next_action_date %} ({{ row.next_action_date }}){% endif %}</td></tr>{% empty %}<tr><td colspan="8">No contracts found.</td></tr>{% endfor %}
+  </tbody></table>
+  {% elif section == 'profitability' %}
+  <table class="contract-table"><thead><tr><th>Client</th><th>Contract</th><th>Site</th><th>Revenue</th><th>Expenses</th><th>Guard Wages</th><th>Profit</th><th>Margin</th></tr></thead><tbody>
+  {% for row in detail_rows %}<tr><td>{{ row.contract.client.client_name }}</td><td>{{ row.contract.contract_number }}</td><td>{{ row.site.site_name }}</td><td class="money">{{ row.revenue|thousands }}</td><td class="money">{{ row.expense|thousands }}</td><td class="money">{{ row.wages|thousands }}</td><td class="money {% if row.profit < 0 %}negative{% else %}positive{% endif %}">{{ row.profit|thousands }}</td><td class="money">{{ row.margin|thousands }}%</td></tr>{% empty %}<tr><td colspan="8">No profitability records found for this period.</td></tr>{% endfor %}
+  </tbody></table>
+  {% elif section == 'billing' %}
+  <table class="contract-table"><thead><tr><th>Client</th><th>Contract</th><th>Invoice</th><th>Billing Period</th><th>Invoice Amount</th><th>Payments Received</th><th>Outstanding</th><th>Due Date</th><th>Days Overdue</th><th>Aging</th></tr></thead><tbody>
+  {% for row in detail_rows %}<tr><td>{{ row.contract.client.client_name }}</td><td>{{ row.contract.contract_number }}</td><td>{{ row.invoice.invoice_number }}</td><td>{{ row.billing_period }}</td><td class="money">{{ row.invoice.total_amount|thousands }}</td><td class="money">{{ row.paid|thousands }}</td><td class="money">{{ row.outstanding|thousands }}</td><td>{{ row.invoice.due_date }}</td><td>{{ row.days_overdue }}</td><td>{{ row.aging }}</td></tr>{% empty %}<tr><td colspan="10">No invoice records found.</td></tr>{% endfor %}
+  </tbody></table>
+  {% elif section == 'staffing' %}
+  <table class="contract-table"><thead><tr><th>Client</th><th>Contract</th><th>Site</th><th>Contracted Shifts</th><th>Scheduled Shifts</th><th>Worked Shifts</th><th>Replacement Shifts</th><th>Uncovered Shifts</th></tr></thead><tbody>
+  {% for row in detail_rows %}<tr><td>{{ row.contract.client.client_name }}</td><td>{{ row.contract.contract_number }}</td><td>{{ row.site.site_name }}</td><td>{{ row.contracted }}</td><td>{{ row.scheduled }}</td><td>{{ row.worked }}</td><td>{{ row.replacement }}</td><td class="{% if row.uncovered > 0 %}negative{% endif %}">{{ row.uncovered }}</td></tr>{% empty %}<tr><td colspan="8">No staffing records found.</td></tr>{% endfor %}
+  </tbody></table>
+  {% elif section == 'performance' %}
+  <table class="contract-table"><thead><tr><th>Client</th><th>Contract</th><th>Site</th><th>Required Patrols</th><th>Completed Patrols</th><th>Incidents</th><th>Response Times</th><th>Complaints</th><th>Unresolved Actions</th></tr></thead><tbody>
+  {% for row in detail_rows %}<tr><td>{{ row.contract.client.client_name }}</td><td>{{ row.contract.contract_number }}</td><td>{{ row.site.site_name }}</td><td>{{ row.required_patrols }}</td><td>{{ row.completed_patrols }}</td><td>{{ row.incidents }}</td><td>{{ row.response_times }}</td><td>{{ row.complaints }}</td><td>{{ row.unresolved_actions }}</td></tr>{% empty %}<tr><td colspan="9">No performance records found.</td></tr>{% endfor %}
+  </tbody></table>
+  {% elif section == 'variations' %}
+  <table class="contract-table"><thead><tr><th>Contract</th><th>Effective Date</th><th>Changes To</th><th>Previous Value</th><th>Revised Value</th><th>Approval Status</th></tr></thead><tbody>
+  {% for row in detail_rows %}<tr><td>{{ row.contract.contract_number }}</td><td>{{ row.variation.effective_date }}</td><td>{{ row.variation.changes_to }}</td><td>{{ row.variation.previous_value|default:"-" }}</td><td>{{ row.variation.revised_value|default:"-" }}</td><td>{{ row.variation.get_approval_status_display }}</td></tr>{% empty %}<tr><td colspan="6">No contract variations found.</td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+</section>
+{% endblock %}

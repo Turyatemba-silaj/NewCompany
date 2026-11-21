@@ -1839,6 +1839,11 @@
                                     <i class="bi bi-clock-history" aria-hidden="true"></i><span>Aging Report</span>
                                 </a>
                             {% endif %}
+                            {% if department.name == "Operations" %}
+                                <a class="nav-link {% if request.resolver_match.url_name == 'contract_management_report' %}active{% endif %}" href="{% url 'webroaster:contract_management_report' %}">
+                                    <i class="bi bi-file-earmark-bar-chart" aria-hidden="true"></i><span>Contract Reports</span>
+                                </a>
+                            {% endif %}
                         </div>
                     </details>
                 {% endfor %}

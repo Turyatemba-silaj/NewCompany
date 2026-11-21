@@ -42,6 +42,26 @@ class Contract(models.Model):
     contract_value = models.DecimalField(max_digits=12, decimal_places=2, default=0, editable=False)
     day_shift_guards = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     night_shift_guards = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    notice_days = models.PositiveIntegerField(default=30)
+    renewal_status = models.CharField(
+        max_length=30,
+        choices=[
+            ("not_started", "Not started"),
+            ("in_discussion", "In discussion"),
+            ("renewed", "Renewed"),
+            ("declined", "Declined"),
+        ],
+        default="not_started",
+    )
+    responsible_officer = models.ForeignKey(
+        "Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="responsible_contracts",
+    )
+    next_action = models.CharField(max_length=255, blank=True, default="")
+    next_action_date = models.DateField(null=True, blank=True)
     
 
     CONTRACT_STATUS_CHOICES = [
@@ -234,7 +254,38 @@ class ContractDeliverable(models.Model):
         return f"{self.item_name} - {self.contract}"
 
     class Meta:
-        db_table = 'contract_deliverables'
+        db_table = "contract_deliverables"
+
+
+class ContractVariation(models.Model):
+    variation_id = models.AutoField(primary_key=True)
+    contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="variations")
+    effective_date = models.DateField()
+    changes_to = models.CharField(max_length=255)
+    previous_value = models.CharField(max_length=255, blank=True, default="")
+    revised_value = models.CharField(max_length=255, blank=True, default="")
+    approval_status = models.CharField(
+        max_length=20,
+        choices=[("pending", "Pending"), ("approved", "Approved"), ("rejected", "Rejected")],
+        default="pending",
+    )
+    approved_by = models.ForeignKey(
+        "Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="approved_contract_variations",
+    )
+    notes = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "contract_variations"
+        ordering = ["-effective_date", "-variation_id"]
+
+    def __str__(self):
+        return f"{self.contract.contract_number} variation - {self.effective_date}"
 
 
 class Region(models.Model):

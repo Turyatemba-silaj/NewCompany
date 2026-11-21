@@ -2,7 +2,8 @@
 import io
 import re
 import zipfile
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
 from xml.etree import ElementTree as ET
 
 from django.conf import settings
@@ -21,12 +22,20 @@ from .models import (
     Asset,
     AssetAssignment,
     Attendance,
+    Expense,
+    Client,
     Contract,
     Deployment,
     DeploymentArea,
     Employee,
     Incident,
     IncidentNotification,
+    Invoice,
+    Paymee,
+    Payment,
+    RosterAssignment,
+    PatrolSession,
+    Salary,
     Shift,
     Site,
 )
@@ -1325,6 +1334,233 @@ def asset_assignment_report(request):
         "report_rows": report_rows,
     }
     return render_page(request, "webroaster/asset_assignment_report.html", context, "asset-assignments")
+
+def contract_management_report(request):
+    require_view_access(request, "contract_report")
+    today = timezone.localdate()
+    reporting_period = request.GET.get("reporting_period", "").strip()
+    try:
+        if reporting_period:
+            period_start = date.fromisoformat(reporting_period + "-01")
+        else:
+            period_start = today.replace(day=1)
+    except ValueError:
+        period_start = today.replace(day=1)
+    if period_start.month == 12:
+        period_end = period_start.replace(year=period_start.year + 1, month=1, day=1)
+    else:
+        period_end = period_start.replace(month=period_start.month + 1, day=1)
+    period_end = period_end - timedelta(days=1)
+
+    client_id = request.GET.get("client", "").strip()
+    site_id = request.GET.get("site", "").strip()
+    status_filter = request.GET.get("status", "").strip()
+    section = request.GET.get("section", "summary").strip() or "summary"
+
+    contracts = Contract.objects.select_related("client", "responsible_officer").prefetch_related("sites", "invoices", "expenses")
+    if client_id:
+        contracts = contracts.filter(client_id=client_id)
+    if status_filter:
+        contracts = contracts.filter(contract_status=status_filter)
+    if site_id:
+        contracts = contracts.filter(sites__pk=site_id)
+    contracts = contracts.distinct().order_by("contract_end_date", "contract_number")
+
+    rows = []
+    for contract in contracts:
+        sites = list(contract.sites.all())
+        invoices = Invoice.objects.filter(contract=contract).exclude(status="cancelled")
+        period_invoices = invoices.filter(invoice_date__range=(period_start, period_end))
+        revenue = sum((invoice.total_amount for invoice in period_invoices), Decimal("0.00"))
+        expense_records = Expense.objects.filter(contract=contract, expense_date__range=(period_start, period_end), approval_status="approved")
+        expenses = sum((expense.amount for expense in expense_records), Decimal("0.00"))
+
+        attendance_rows = Attendance.objects.select_related("attended_guard", "employee", "site").filter(
+            site__contract=contract,
+            date__range=(period_start, period_end),
+            present=True,
+        )
+        wages = Decimal("0.00")
+        for attendance in attendance_rows:
+            guard = attendance.attended_guard or attendance.employee
+            if guard:
+                wages += guard.daily_rate
+        service_costs = expenses + wages
+        profit = revenue - service_costs
+        margin = (profit / revenue * Decimal("100")).quantize(Decimal("0.01")) if revenue else Decimal("0.00")
+
+        outstanding = Decimal("0.00")
+        for invoice in invoices.exclude(status__in=("paid", "cancelled")):
+            payments = sum((payment.amount for payment in invoice.payments.all()), Decimal("0.00"))
+            outstanding += max(invoice.total_amount - payments, Decimal("0.00"))
+
+        days_remaining = (contract.contract_end_date - today).days
+        notice_deadline = contract.contract_end_date - timedelta(days=contract.notice_days)
+        renewal_status = contract.get_renewal_status_display()
+        if contract.contract_status == "terminated":
+            status = "Terminated"
+        elif contract.contract_end_date < today:
+            status = "Expired"
+        elif contract.contract_start_date > today:
+            status = "Pending"
+        elif days_remaining <= 30:
+            status = "Expiring in 30 days"
+        elif days_remaining <= 60:
+            status = "Expiring in 60 days"
+        elif days_remaining <= 90:
+            status = "Expiring in 90 days"
+        else:
+            status = "Active"
+
+        detail_url = {
+            "summary": f"/contracts/reports/?section=summary&contract={contract.pk}",
+            "profitability": f"/contracts/reports/?section=profitability&contract={contract.pk}&reporting_period={period_start:%Y-%m}",
+            "staffing": f"/contracts/reports/?section=staffing&contract={contract.pk}&reporting_period={period_start:%Y-%m}",
+            "billing": f"/contracts/reports/?section=billing&contract={contract.pk}",
+        }
+        rows.append({
+            "contract": contract,
+            "client": contract.client,
+            "sites": ", ".join(site.site_name for site in sites) or "-",
+            "start_date": contract.contract_start_date,
+            "expiry_date": contract.contract_end_date,
+            "days_remaining": days_remaining,
+            "notice_deadline": notice_deadline,
+            "status": status,
+            "renewal_status": renewal_status,
+            "responsible_officer": contract.responsible_officer,
+            "next_action": contract.next_action or "-",
+            "next_action_date": contract.next_action_date,
+            "revenue": revenue,
+            "service_costs": service_costs,
+            "wages": wages,
+            "expenses": expenses,
+            "profit": profit,
+            "margin": margin,
+            "outstanding": outstanding,
+            "detail_urls": detail_url,
+        })
+
+    selected_contract_id = request.GET.get("contract", "").strip()
+    selected_contract = Contract.objects.filter(pk=selected_contract_id).first() if selected_contract_id else None
+    detail_rows = []
+    if section == "expiry" or section == "summary":
+        detail_rows = rows
+    if section == "profitability":
+        source_contracts = [selected_contract] if selected_contract else [row["contract"] for row in rows]
+        for contract in source_contracts:
+            if not contract:
+                continue
+            for site in contract.sites.all():
+                revenue = sum((invoice.total_amount for invoice in Invoice.objects.filter(contract=contract, billing_start_date__lte=period_end, billing_end_date__gte=period_start) if site in invoice.sites.all()), Decimal("0.00")) if contract.invoices.exists() else Decimal("0.00")
+                expenses = Expense.objects.filter(contract=contract, site=site, expense_date__range=(period_start, period_end), approval_status="approved")
+                expense_total = sum((expense.amount for expense in expenses), Decimal("0.00"))
+                attendance = Attendance.objects.filter(site=site, date__range=(period_start, period_end), present=True)
+                wage_total = Decimal("0.00")
+                for attendance_record in attendance:
+                    attended_guard = attendance_record.attended_guard or attendance_record.employee
+                    if attended_guard:
+                        wage_total += attended_guard.daily_rate
+                profit = revenue - expense_total - wage_total
+                detail_rows.append({"contract": contract, "site": site, "revenue": revenue, "expense": expense_total, "wages": wage_total, "profit": profit, "margin": (profit / revenue * 100).quantize(Decimal("0.01")) if revenue else Decimal("0.00")})
+    elif section == "staffing":
+        source_contracts = [selected_contract] if selected_contract else [row["contract"] for row in rows]
+        for contract in source_contracts:
+            if not contract:
+                continue
+            for site in contract.sites.all():
+                days = (period_end - period_start).days + 1
+                contracted = (site.day_shift_guards + site.night_shift_guards) * days
+                scheduled = RosterAssignment.objects.filter(site=site, date__range=(period_start, period_end)).exclude(status="cancelled").count()
+                attendance = Attendance.objects.filter(site=site, date__range=(period_start, period_end), present=True)
+                worked = attendance.count()
+                replacement = sum(1 for record in attendance if record.attended_guard_id and record.scheduled_guard_id and record.attended_guard_id != record.scheduled_guard_id)
+                uncovered = max(contracted - worked, 0)
+                detail_rows.append({"contract": contract, "site": site, "contracted": contracted, "scheduled": scheduled, "worked": worked, "replacement": replacement, "uncovered": uncovered})
+    elif section == "billing":
+        source_contracts = [selected_contract] if selected_contract else [row["contract"] for row in rows]
+        for contract in source_contracts:
+            if not contract:
+                continue
+            for invoice in Invoice.objects.filter(contract=contract).exclude(status="cancelled").order_by("due_date", "invoice_number"):
+                paid = sum((payment.amount for payment in invoice.payments.all()), Decimal("0.00"))
+                outstanding = max(invoice.total_amount - paid, Decimal("0.00"))
+                days_overdue = max((today - invoice.due_date).days, 0) if outstanding > 0 else 0
+                if days_overdue == 0:
+                    aging = "Not overdue"
+                elif days_overdue <= 30:
+                    aging = "1-30"
+                elif days_overdue <= 60:
+                    aging = "31-60"
+                elif days_overdue <= 90:
+                    aging = "61-90"
+                else:
+                    aging = "Over 90"
+                detail_rows.append({"contract": contract, "invoice": invoice, "billing_period": f"{invoice.billing_start_date or invoice.invoice_date} - {invoice.billing_end_date or invoice.due_date}", "credit_notes": invoice.amendment_amount if invoice.amendment_amount < 0 else Decimal("0.00"), "paid": paid, "outstanding": outstanding, "days_overdue": days_overdue, "aging": aging})
+    elif section == "performance":
+        source_contracts = [selected_contract] if selected_contract else [row["contract"] for row in rows]
+        for contract in source_contracts:
+            if not contract:
+                continue
+            for site in contract.sites.all():
+                sessions = PatrolSession.objects.filter(site=site, started_at__date__range=(period_start, period_end))
+                required = sum(session.route.checkpoints.filter(is_active=True).count() for session in sessions)
+                completed = sum(session.checkpoint_visits.count() for session in sessions)
+                incident_count = Incident.objects.filter(site=site, date_time__date__range=(period_start, period_end)).count()
+                unresolved = Incident.objects.filter(site=site, date_time__date__range=(period_start, period_end)).exclude(status__in=("resolved", "closed")).count()
+                detail_rows.append({"contract": contract, "site": site, "required_patrols": required, "completed_patrols": completed, "incidents": incident_count, "response_times": "-", "complaints": 0, "unresolved_actions": unresolved})
+    elif section == "variations":
+        source_contracts = [selected_contract] if selected_contract else [row["contract"] for row in rows]
+        for contract in source_contracts:
+            if not contract:
+                continue
+            for variation in contract.variations.select_related("approved_by").all():
+                detail_rows.append({"contract": contract, "variation": variation})
+
+    if request.GET.get("export") == "csv":
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="contract-{section}-report.csv"'
+        writer = csv.writer(response)
+        if section == "summary":
+            writer.writerow(["Contract No.", "Client", "Sites", "Status", "Expiry Date", "Days Remaining", "Renewal Status", "Revenue (UGX)", "Service Costs (UGX)", "Profit (UGX)", "Margin (%)", "Outstanding (UGX)"])
+            for row in rows:
+                writer.writerow([row["contract"].contract_number, row["client"].client_name, row["sites"], row["status"], row["expiry_date"], row["days_remaining"], row["renewal_status"], row["revenue"], row["service_costs"], row["profit"], row["margin"], row["outstanding"]])
+        elif section == "billing":
+            writer.writerow(["Client", "Contract", "Invoice Number", "Billing Period", "Invoice Amount", "Credit Notes", "Payments Received", "Outstanding Balance", "Due Date", "Days Overdue", "Aging"])
+            for row in detail_rows:
+                invoice = row["invoice"]
+                writer.writerow([row["contract"].client.client_name, row["contract"].contract_number, invoice.invoice_number, row["billing_period"], invoice.total_amount, row["credit_notes"], row["paid"], row["outstanding"], invoice.due_date, row["days_overdue"], row["aging"]])
+        elif section == "staffing":
+            writer.writerow(["Client", "Contract", "Site", "Reporting Period", "Contracted Shifts", "Scheduled Shifts", "Worked Shifts", "Replacement Shifts", "Uncovered Shifts"])
+            for row in detail_rows:
+                writer.writerow([row["contract"].client.client_name, row["contract"].contract_number, row["site"].site_name, period_start.strftime("%Y-%m"), row["contracted"], row["scheduled"], row["worked"], row["replacement"], row["uncovered"]])
+        elif section == "profitability":
+            writer.writerow(["Client", "Contract", "Site", "Reporting Period", "Revenue", "Expenses", "Guard Wages", "Profit", "Margin (%)"])
+            for row in detail_rows:
+                writer.writerow([row["contract"].client.client_name, row["contract"].contract_number, row["site"].site_name, period_start.strftime("%Y-%m"), row["revenue"], row["expense"], row["wages"], row["profit"], row["margin"]])
+        elif section == "performance":
+            writer.writerow(["Client", "Contract", "Site", "Reporting Period", "Required Patrols", "Completed Patrols", "Incidents", "Unresolved Actions"])
+            for row in detail_rows:
+                writer.writerow([row["contract"].client.client_name, row["contract"].contract_number, row["site"].site_name, period_start.strftime("%Y-%m"), row["required_patrols"], row["completed_patrols"], row["incidents"], row["unresolved_actions"]])
+        elif section == "expiry":
+            writer.writerow(["Client", "Contract", "Expiry Date", "Days Remaining", "Notice Deadline", "Renewal Status", "Responsible Officer", "Next Action", "Next Action Date"])
+            for row in rows:
+                writer.writerow([row["client"].client_name, row["contract"].contract_number, row["expiry_date"], row["days_remaining"], row["notice_deadline"], row["renewal_status"], row["responsible_officer"] or "-", row["next_action"], row["next_action_date"] or "-"])
+        return response
+
+    context = {
+        "title": "Contract Management Summary" if section == "summary" else f"Contract {section.title()} Report",
+        "rows": rows,
+        "detail_rows": detail_rows,
+        "section": section,
+        "reporting_period": period_start.strftime("%Y-%m"),
+        "clients": Client.objects.all().order_by("client_name"),
+        "sites": Site.objects.select_related("client").all().order_by("client__client_name", "site_name"),
+        "selected_contract": selected_contract,
+        "today": today,
+    }
+    return render_page(request, "webroaster/contract_management_report.html", context, "contracts")
+
 
 def contract_report(request, pk):
     require_view_access(request, "contract_report")

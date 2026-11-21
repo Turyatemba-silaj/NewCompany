@@ -32,6 +32,7 @@ urlpatterns = [
     path("deployments/supervisor-checklist/", staff_required(operations.supervisor_checklist), name="supervisor_checklist"),
     path("attendance/query/", staff_required(operations.attendance_query), name="attendance_query"),
     path("contracts/<int:pk>/report/", staff_required(operations.contract_report), name="contract_report"),
+    path("contracts/reports/", staff_required(operations.contract_management_report), name="contract_management_report"),
     path("salaries/<int:pk>/payslip/", staff_required(finance.salary_payslip), name="salary_payslip"),
     path("salaries/<int:pk>/payslip/pdf/", staff_required(finance.salary_payslip_pdf), name="salary_payslip_pdf"),
     path("invoices/<int:pk>/invoice/", staff_required(finance.invoice_document), name="invoice_document"),
