@@ -2,6 +2,7 @@
 import io
 import re
 import zipfile
+from collections import defaultdict
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from xml.etree import ElementTree as ET
@@ -605,7 +606,7 @@ def attach_guard_to_site(site, guard):
         raise ValueError(f"{site} already has the required guards plus one relief guard.")
     site.guards.add(guard)
 
-def create_roster_deployment(site, guard, shift_date, shift_type):
+def create_roster_deployment(site, guard, shift_date, shift_type, shift=None, end_date=None):
     if guard:
         site.guards.add(guard)
         if site.region_id:
@@ -615,21 +616,30 @@ def create_roster_deployment(site, guard, shift_date, shift_type):
                 start_date=shift_date,
                 defaults={"status": "active"},
             )
-    default_start = time(7, 0) if shift_type == "day" else time(18, 0)
-    default_end = time(18, 0) if shift_type == "day" else time(7, 0)
-    shift, _ = Shift.objects.get_or_create(
-        start_time=default_start,
-        end_time=default_end,
-        defaults={"hours_per_shift": 0},
-    )
-    Deployment.objects.get_or_create(
+    if not shift:
+        default_start = time(7, 0) if shift_type == "day" else time(18, 0)
+        default_end = time(18, 0) if shift_type == "day" else time(7, 0)
+        shift, _ = Shift.objects.get_or_create(
+            start_time=default_start,
+            end_time=default_end,
+            defaults={"hours_per_shift": 0},
+        )
+    deployment, _created = Deployment.objects.get_or_create(
         client=site.client,
         site=site,
         shift=shift,
         start_date=shift_date,
-        end_date=shift_date,
+        end_date=end_date or shift_date,
         status="active",
+        defaults={"shift_coverage": shift_type},
     )
+    if deployment.shift_coverage != shift_type:
+        deployment.shift_coverage = shift_type
+        deployment.save()
+    if guard:
+        guard_relation = deployment.day_guards if shift_type == "day" else deployment.night_guards
+        guard_relation.add(guard)
+    deployment.sync_operational_plan()
 
 
 def import_matrix_roster(rows, selected_site):
@@ -714,15 +724,13 @@ def import_flat_roster(decoded_file, selected_site):
             end_time=end_time,
             defaults={"hours_per_shift": 0},
         )
-        if guard:
-            site.guards.add(guard)
-        Deployment.objects.get_or_create(
-            client=site.client,
-            site=site,
+        create_roster_deployment(
+            site,
+            guard,
+            shift_date,
+            shift_type,
             shift=shift,
-            start_date=shift_date,
             end_date=end_date,
-            status="active",
         )
         saved_count += 1
     return saved_count, line_number
@@ -754,39 +762,132 @@ def employee_roster_name(employee):
     return f"{employee.first_name} {employee.last_name}".strip()
 
 
+def monthly_roster_assignments(site, period_start, period_end):
+    first_week = period_start - timedelta(days=period_start.weekday())
+    last_week = period_end + timedelta(days=6 - period_end.weekday())
+    schedule_dates = roster_period_dates(first_week, last_week)
+    sites = list(
+        Site.objects.filter(status="active")
+        .prefetch_related("guards")
+        .order_by("site_id")
+    )
+    if site.pk not in {roster_site.pk for roster_site in sites}:
+        sites.append(Site.objects.prefetch_related("guards").get(pk=site.pk))
+
+    site_guards = {
+        roster_site.pk: [
+            guard
+            for guard in roster_site.guards.all()
+            if guard.role == "guard" and guard.status == "active" and not guard.is_reliever
+        ]
+        for roster_site in sites
+    }
+    site_offsets = {roster_site.pk: index for index, roster_site in enumerate(sites)}
+    relievers = list(
+        Employee.objects.filter(role="guard", status="active", is_reliever=True)
+        .order_by("employee_number", "first_name", "last_name")
+    )
+    assignments = defaultdict(lambda: defaultdict(list))
+    weekly_reliever_days = defaultdict(int)
+    eligibility_cache = {}
+
+    for work_date in schedule_dates:
+        week_start = work_date - timedelta(days=work_date.weekday())
+        week_index = (week_start - date(2024, 1, 1)).days // 7
+        scheduled_guard_ids = set()
+        vacancies = []
+
+        for roster_site in sites:
+            shifts = ["D"] * roster_site.day_shift_guards + ["N"] * roster_site.night_shift_guards
+            guards = site_guards[roster_site.pk]
+            site_vacancies = []
+            extra_guards = guards[len(shifts) :]
+
+            for slot_index, marker in enumerate(shifts):
+                guard = guards[slot_index] if slot_index < len(guards) else None
+                rest_day = (site_offsets[roster_site.pk] + slot_index + week_index) % 7 if guard else None
+                if guard and rest_day != work_date.weekday() and guard.pk not in scheduled_guard_ids:
+                    assignments[roster_site.pk][work_date].append((guard, marker))
+                    scheduled_guard_ids.add(guard.pk)
+                else:
+                    site_vacancies.append(marker)
+
+            remaining_vacancies = []
+            for marker in site_vacancies:
+                substitute = next((
+                    guard
+                    for guard in extra_guards
+                    if (
+                        site_offsets[roster_site.pk]
+                        + guards.index(guard)
+                        + week_index
+                    ) % 7 != work_date.weekday()
+                    and guard.pk not in scheduled_guard_ids
+                ), None)
+                if substitute:
+                    assignments[roster_site.pk][work_date].append((substitute, marker))
+                    scheduled_guard_ids.add(substitute.pk)
+                    extra_guards.remove(substitute)
+                else:
+                    remaining_vacancies.append(marker)
+            vacancies.extend((roster_site, marker) for marker in remaining_vacancies)
+
+        for roster_site, marker in vacancies:
+            for reliever in relievers:
+                eligibility_key = (reliever.pk, roster_site.pk, work_date)
+                if eligibility_key not in eligibility_cache:
+                    eligibility_cache[eligibility_key] = Attendance.employee_has_deployment_area(
+                        reliever, roster_site, work_date
+                    )
+                if (
+                    not eligibility_cache[eligibility_key]
+                    or reliever.pk in scheduled_guard_ids
+                    or weekly_reliever_days[(reliever.pk, week_start)] >= 6
+                ):
+                    continue
+                assignments[roster_site.pk][work_date].append((reliever, marker))
+                scheduled_guard_ids.add(reliever.pk)
+                weekly_reliever_days[(reliever.pk, week_start)] += 1
+                break
+            else:
+                assignments[roster_site.pk][work_date].append((None, marker))
+
+    return assignments
+
+
 def build_monthly_roster_matrix(site, period_start, period_end):
     dates = roster_period_dates(period_start, period_end)
+    assignments = monthly_roster_assignments(site, period_start, period_end)
     guards = export_roster_staff(site, period_start, period_end)
-    total_required = site.day_shift_guards + site.night_shift_guards
-    rows = [
-        {
+    row_by_guard_id = {}
+
+    def create_guard_row(guard):
+        return {
             "employee": guard,
             "pers_no": guard.employee_number or guard.pk,
             "grade": "",
             "name": employee_roster_name(guard),
             "contact": guard.phone_number or "",
             "markers": {work_date: "O" for work_date in dates},
+            "worked_days": 0,
         }
-        for guard in guards
-    ]
-    row_by_guard_id = {row["employee"].pk: row for row in rows}
+
+    for guard in guards:
+        if not guard.is_reliever:
+            row_by_guard_id[guard.pk] = create_guard_row(guard)
+
     shortage_rows = []
-
     for work_date in dates:
-        scheduled = rotating_scheduled_guards(guards, total_required, work_date, period_start)
-        day_guards = scheduled[: site.day_shift_guards]
-        night_guards = scheduled[site.day_shift_guards : site.day_shift_guards + site.night_shift_guards]
+        shortage_index = 0
+        for guard, marker in assignments[site.pk][work_date]:
+            if guard:
+                if guard.pk not in row_by_guard_id:
+                    row_by_guard_id[guard.pk] = create_guard_row(guard)
+                row_by_guard_id[guard.pk]["markers"][work_date] = marker
+                continue
 
-        for guard in day_guards:
-            row_by_guard_id[guard.pk]["markers"][work_date] = "D"
-        for guard in night_guards:
-            row_by_guard_id[guard.pk]["markers"][work_date] = "N"
-
-        shortage_markers = []
-        shortage_markers.extend(["D"] * max(site.day_shift_guards - len(day_guards), 0))
-        shortage_markers.extend(["N"] * max(site.night_shift_guards - len(night_guards), 0))
-        for index, marker in enumerate(shortage_markers):
-            if index >= len(shortage_rows):
+            shortage_index += 1
+            while len(shortage_rows) < shortage_index:
                 shortage_rows.append(
                     {
                         "employee": None,
@@ -795,20 +896,32 @@ def build_monthly_roster_matrix(site, period_start, period_end):
                         "name": "Shortage Guard",
                         "contact": "",
                         "markers": {date_value: "O" for date_value in dates},
+                        "worked_days": "",
                     }
                 )
-            shortage_rows[index]["markers"][work_date] = marker
+            shortage_rows[shortage_index - 1]["markers"][work_date] = marker
 
+    for row in row_by_guard_id.values():
+        row["worked_days"] = sum(
+            marker in ("D", "N") for marker in row["markers"].values()
+        )
+
+    rows = sorted(
+        row_by_guard_id.values(),
+        key=lambda row: (
+            row["employee"].employee_number or "",
+            row["employee"].first_name,
+            row["employee"].last_name,
+        ),
+    )
     return dates, rows + shortage_rows
 
 
 def next_roster_period(period_start, period_end):
     next_start = period_end + timezone.timedelta(days=1)
-    if period_start.day == 26 and period_end.day == 25:
-        if next_start.month == 12:
-            next_end = next_start.replace(year=next_start.year + 1, month=1, day=25)
-        else:
-            next_end = next_start.replace(month=next_start.month + 1, day=25)
+    if period_start.day == 1 and next_start.day == 1:
+        following_month = (next_start.replace(day=28) + timezone.timedelta(days=4)).replace(day=1)
+        next_end = following_month - timezone.timedelta(days=1)
         return next_start, next_end
     return next_start, next_start + (period_end - period_start)
 
@@ -848,7 +961,7 @@ def write_monthly_roster_csv(response, site, period_start, period_end):
             row["grade"],
             row["name"],
             row["contact"],
-            "",
+            row["worked_days"],
             *[row["markers"][work_date] for work_date in dates],
         ])
 
@@ -863,17 +976,9 @@ def is_matrix_roster(rows):
 
 def default_monthly_roster_period(reference_date=None):
     reference_date = reference_date or timezone.localdate()
-    if reference_date.day >= 26:
-        period_start = reference_date.replace(day=26)
-    elif reference_date.month == 1:
-        period_start = reference_date.replace(year=reference_date.year - 1, month=12, day=26)
-    else:
-        period_start = reference_date.replace(month=reference_date.month - 1, day=26)
-
-    if period_start.month == 12:
-        period_end = period_start.replace(year=period_start.year + 1, month=1, day=25)
-    else:
-        period_end = period_start.replace(month=period_start.month + 1, day=25)
+    period_start = reference_date.replace(day=1)
+    next_month = (period_start.replace(day=28) + timezone.timedelta(days=4)).replace(day=1)
+    period_end = next_month - timezone.timedelta(days=1)
     return period_start, period_end
 
 

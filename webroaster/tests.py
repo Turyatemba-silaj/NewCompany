@@ -24,7 +24,7 @@ from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
 from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
-from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
+from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, default_monthly_roster_period, import_flat_roster, import_matrix_roster, next_roster_period, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
 
 def login_test_staff(client, username="staff"):
     user, _created = get_user_model().objects.get_or_create(username=username)
@@ -326,6 +326,15 @@ class GuardRotationTests(SimpleTestCase):
         self.assertEqual(scheduled, [2, 3, 4, 5, 6, 7])
 
 class DutyRosterMatrixTests(TestCase):
+    def test_monthly_period_uses_calendar_months(self):
+        period_start, period_end = default_monthly_roster_period(date(2024, 2, 20))
+
+        self.assertEqual((period_start, period_end), (date(2024, 2, 1), date(2024, 2, 29)))
+        self.assertEqual(
+            next_roster_period(period_start, period_end),
+            (date(2024, 3, 1), date(2024, 3, 31)),
+        )
+
     def test_parses_sample_period_with_extra_range(self):
         rows = [["Scheduled Period: 2023-02-26 to 2023-03-25", "2023.03.26 to", "2023.04.25"]]
 
@@ -334,7 +343,7 @@ class DutyRosterMatrixTests(TestCase):
         self.assertEqual(period_start, date(2023, 2, 26))
         self.assertEqual(period_end, date(2023, 3, 25))
 
-    def test_monthly_matrix_rotates_one_relief_guard_off(self):
+    def test_monthly_matrix_schedules_guard_rest_days(self):
         region = Region.objects.get(region_name="Central Three")
         site = Site.objects.create(
             region=region,
@@ -369,6 +378,80 @@ class DutyRosterMatrixTests(TestCase):
         self.assertEqual(markers.count("N"), 3)
         self.assertEqual(markers.count("O"), 1)
 
+    def test_shared_reliever_covers_sites_for_up_to_six_days_per_week(self):
+        region = Region.objects.get(region_name="Central Three")
+        reliever = Employee.objects.create(
+            first_name="Shared",
+            last_name="Reliever",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0700000199",
+            email="shared-reliever@example.com",
+            address="Kampala",
+            national_id="NIN-SHARED-RELIEVER",
+            hire_date=date(2022, 1, 1),
+            role="guard",
+            status="active",
+            is_reliever=True,
+        )
+        DeploymentArea.objects.create(
+            employee=reliever,
+            region=region,
+            start_date=date(2026, 1, 1),
+            status="active",
+        )
+        sites = []
+        for index in range(7):
+            site = Site.objects.create(
+                region=region,
+                site_name=f"Weekly Relief Site {index}",
+                site_address="Kampala",
+                day_shift_guards=1,
+                night_shift_guards=0,
+            )
+            guard = Employee.objects.create(
+                first_name=f"Weekly{index}",
+                last_name="Guard",
+                date_of_birth=date(1990, 1, 1),
+                gender="M",
+                phone_number=f"07000002{index:02d}",
+                email=f"weekly{index}@example.com",
+                address="Kampala",
+                national_id=f"NIN-WEEKLY-{index}",
+                hire_date=date(2022, 1, 1),
+                role="guard",
+                status="active",
+            )
+            site.guards.add(guard)
+            sites.append(site)
+
+        period_start = date(2026, 3, 2)
+        period_end = date(2026, 3, 8)
+        reliever_days = set()
+        reliever_sites = set()
+        shortage_days = set()
+        for site in sites:
+            dates, rows = build_monthly_roster_matrix(site, period_start, period_end)
+            guard_row = next(row for row in rows if row["employee"] and row["employee"].pk != reliever.pk)
+            self.assertEqual(sum(guard_row["markers"][work_date] == "D" for work_date in dates), 6)
+            self.assertEqual(sum(guard_row["markers"][work_date] == "O" for work_date in dates), 1)
+
+            reliever_row = next((row for row in rows if row["employee"] and row["employee"].pk == reliever.pk), None)
+            if reliever_row:
+                reliever_sites.add(site.pk)
+                reliever_days.update(
+                    work_date for work_date in dates if reliever_row["markers"][work_date] == "D"
+                )
+            shortage_row = next((row for row in rows if row["name"] == "Shortage Guard"), None)
+            if shortage_row:
+                shortage_days.update(
+                    work_date for work_date in dates if shortage_row["markers"][work_date] == "D"
+                )
+
+        self.assertEqual(len(reliever_days), 6)
+        self.assertEqual(len(reliever_sites), 6)
+        self.assertEqual(len(shortage_days), 1)
+
 
 class DeploymentAutomationTests(TestCase):
     def create_guard(self, name, region):
@@ -387,6 +470,75 @@ class DeploymentAutomationTests(TestCase):
         )
         DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 1, 1), status="active")
         return guard
+
+    def test_uploaded_matrix_roster_creates_active_shift_coverage(self):
+        region = Region.objects.get(region_name="Central Three")
+        site = Site.objects.create(
+            region=region,
+            site_name="Uploaded Roster Coverage Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=1,
+        )
+        day_guard = self.create_guard("UploadedDay", region)
+        night_guard = self.create_guard("UploadedNight", region)
+        rows = [
+            ["Scheduled Period: 2026-03-01 to 2026-03-01"],
+            ["Pers No", "Grade", "Name", "Contact", "Worked days", "Su/01"],
+            [day_guard.employee_number, "", "UploadedDay Guard", "", "1", "D"],
+            [night_guard.employee_number, "", "UploadedNight Guard", "", "1", "N"],
+        ]
+
+        saved_count = import_matrix_roster(rows, site)
+
+        self.assertEqual(saved_count, 2)
+        deployments = list(Deployment.objects.filter(site=site, status="active").order_by("shift_coverage"))
+        self.assertEqual(len(deployments), 2)
+        day_deployment = next(deployment for deployment in deployments if deployment.shift_coverage == "day")
+        night_deployment = next(deployment for deployment in deployments if deployment.shift_coverage == "night")
+        self.assertEqual(list(day_deployment.day_guards.all()), [day_guard])
+        self.assertEqual(list(night_deployment.night_guards.all()), [night_guard])
+        self.assertEqual(RosterAssignment.objects.filter(site=site, date=date(2026, 3, 1)).count(), 2)
+        self.assertEqual(
+            Attendance.objects.filter(site=site, date=date(2026, 3, 1), attendance_source="deployment_roster").count(),
+            2,
+        )
+
+        import_matrix_roster(rows, site)
+
+        self.assertEqual(Deployment.objects.filter(site=site, status="active").count(), 2)
+        self.assertEqual(RosterAssignment.objects.filter(site=site, date=date(2026, 3, 1)).count(), 2)
+        self.assertEqual(
+            Attendance.objects.filter(site=site, date=date(2026, 3, 1), attendance_source="deployment_roster").count(),
+            2,
+        )
+
+    def test_uploaded_flat_roster_creates_active_shift_coverage(self):
+        region = Region.objects.get(region_name="Central Three")
+        site = Site.objects.create(
+            region=region,
+            site_name="Uploaded Flat Roster Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        guard = self.create_guard("UploadedFlat", region)
+        roster_csv = (
+            "guard_id,shift_date,shift_type,start_time,end_time\n"
+            f"{guard.pk},2026-03-02,day,07:00,18:00\n"
+        )
+
+        saved_count, _line_number = import_flat_roster(roster_csv, site)
+
+        deployment = Deployment.objects.get(site=site, status="active")
+        self.assertEqual(saved_count, 1)
+        self.assertEqual(deployment.shift_coverage, "day")
+        self.assertEqual(list(deployment.day_guards.all()), [guard])
+        self.assertEqual(RosterAssignment.objects.filter(site=site, guard=guard).count(), 1)
+        self.assertEqual(
+            Attendance.objects.filter(site=site, scheduled_guard=guard, attendance_source="deployment_roster").count(),
+            1,
+        )
 
     def test_deployment_form_generates_roster_assignments_and_expected_attendance(self):
         region = Region.objects.create(region_name="Automation Region")
@@ -506,18 +658,18 @@ class DeploymentAutomationTests(TestCase):
         site.guards.add(guard)
         output = io.StringIO()
 
-        write_monthly_roster_csv(output, site, date(2023, 2, 26), date(2023, 3, 25))
+        write_monthly_roster_csv(output, site, date(2023, 2, 1), date(2023, 2, 28))
 
         rows = list(csv.reader(io.StringIO(output.getvalue())))
         self.assertIn("Site Roster for BRAC Kasambya", rows[0][0])
         self.assertEqual(rows[1], [])
         self.assertEqual(rows[2][0], "Deployment Area: Central Three")
-        self.assertEqual(rows[4][0], "Scheduled Period: 2023-02-26 to 2023-03-25")
-        self.assertEqual(rows[4][2], "2023.03.26 to")
-        self.assertEqual(rows[4][3], "2023.04.25")
-        self.assertEqual(rows[6][:6], ["Pers No", "Grade", "Name", "Contact", "Worked days", "Su/26"])
+        self.assertEqual(rows[4][0], "Scheduled Period: 2023-02-01 to 2023-02-28")
+        self.assertEqual(rows[4][2], "2023.03.01 to")
+        self.assertEqual(rows[4][3], "2023.03.31")
+        self.assertEqual(rows[6][:6], ["Pers No", "Grade", "Name", "Contact", "Worked days", "We/01"])
         self.assertEqual(rows[7][2], "Saimon Baluku")
-        self.assertEqual(rows[7][4], "")
+        self.assertEqual(rows[7][4], "25")
 
     def test_export_ignores_deployment_area_guards_not_assigned_to_site(self):
         region = Region.objects.get(region_name="Central Three")
