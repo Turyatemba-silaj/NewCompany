@@ -540,6 +540,84 @@ class DeploymentAutomationTests(TestCase):
             1,
         )
 
+    def test_flat_roster_accepts_shortage_placeholder_identity(self):
+        region = Region.objects.get(region_name="Central Three")
+        site = Site.objects.create(
+            region=region,
+            site_name="Flat Shortage Placeholder Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        roster_csv = (
+            "emp_id,name,shift_date,shift_type\n"
+            "zz,shortage,2026-03-02,day\n"
+        )
+
+        saved_count, _line_number = import_flat_roster(roster_csv, site)
+
+        deployment = Deployment.objects.get(site=site, status="active")
+        self.assertEqual(saved_count, 1)
+        self.assertEqual(deployment.shift_coverage, "day")
+        self.assertFalse(deployment.day_guards.exists())
+        self.assertFalse(Attendance.objects.filter(site=site, date=date(2026, 3, 2)).exists())
+
+    def test_shortage_placeholder_upload_can_be_replaced_with_an_existing_guard(self):
+        region = Region.objects.get(region_name="Central Three")
+        site = Site.objects.create(
+            region=region,
+            site_name="Shortage Replacement Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        replacement_guard = self.create_guard("ShortageReplacement", region)
+        rows = [
+            ["Scheduled Period: 2026-03-01 to 2026-03-01"],
+            ["Pers No", "Grade", "Name", "Contact", "Worked days", "Su/01"],
+            ["zz", "", "Shortage", "", "", "D"],
+        ]
+
+        saved_count = import_matrix_roster(rows, site)
+
+        deployment = Deployment.objects.get(site=site, status="active")
+        self.assertEqual(saved_count, 1)
+        self.assertEqual(deployment.shift_coverage, "day")
+        self.assertFalse(deployment.day_guards.exists())
+        self.assertFalse(RosterAssignment.objects.filter(site=site, date=date(2026, 3, 1)).exists())
+
+        form = DeploymentForm(
+            data={
+                "client": "",
+                "site": site.pk,
+                "shift_type": "day",
+                "day_guards": [replacement_guard.pk],
+                "night_guards": [],
+                "start_date": "2026-03-01",
+                "end_date": "2026-03-01",
+                "status": "active",
+            },
+            instance=deployment,
+        )
+        self.assertIn(replacement_guard, form.fields["day_guards"].queryset)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+
+        self.assertEqual(list(deployment.day_guards.all()), [replacement_guard])
+        self.assertEqual(
+            RosterAssignment.objects.filter(site=site, guard=replacement_guard, date=date(2026, 3, 1)).count(),
+            1,
+        )
+        self.assertEqual(
+            Attendance.objects.filter(
+                site=site,
+                scheduled_guard=replacement_guard,
+                date=date(2026, 3, 1),
+                attendance_source="deployment_roster",
+            ).count(),
+            1,
+        )
+
     def test_deployment_form_generates_roster_assignments_and_expected_attendance(self):
         region = Region.objects.create(region_name="Automation Region")
         site = Site.objects.create(

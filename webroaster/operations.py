@@ -457,9 +457,9 @@ def get_roster_site(row, selected_site):
 
 
 def get_roster_guard(row):
-    guard_id = csv_value(row, "guard_id", "guard", "pers no", "pers_no")
-    employee_id = csv_value(row, "employee_id")
-    employee_name = csv_value(row, "employee_name", "guard_name", "scheduled_guard", "name")
+    guard_id = csv_value(row, "guard_id", "guard", "pers no", "pers_no", "emp id", "emp_id")
+    employee_id = csv_value(row, "employee_id", "emp id", "emp_id")
+    employee_name = csv_value(row, "employee_name", "guard_name", "scheduled_guard", "name", "emp name", "emp_name")
     if guard_id.isdigit():
         employee = Employee.objects.filter(pk=guard_id, role="guard").first()
         if employee:
@@ -467,7 +467,11 @@ def get_roster_guard(row):
     if employee_id.isdigit():
         return Employee.objects.get(pk=employee_id, role="guard")
     if employee_name:
-        if employee_name.lower() == "shortage guard":
+        normalized_name = " ".join(employee_name.casefold().split())
+        normalized_guard_id = guard_id.casefold()
+        if normalized_name == "shortage guard":
+            return None
+        if normalized_name == "shortage" and normalized_guard_id in ("", "zz", "shortage"):
             return None
         parts = employee_name.split()
         if len(parts) >= 2:
