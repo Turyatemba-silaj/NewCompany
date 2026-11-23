@@ -24,7 +24,7 @@ from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
 from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
-from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, default_monthly_roster_period, import_flat_roster, import_matrix_roster, next_roster_period, parse_scheduled_period, rotating_scheduled_guards, write_monthly_roster_csv
+from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, default_monthly_roster_period, import_flat_roster, import_matrix_roster, next_roster_period, parse_scheduled_period, read_xlsx_rows, rotating_scheduled_guards, write_monthly_roster_csv
 
 def login_test_staff(client, username="staff"):
     user, _created = get_user_model().objects.get_or_create(username=username)
@@ -471,6 +471,69 @@ class DeploymentAutomationTests(TestCase):
         DeploymentArea.objects.create(employee=guard, region=region, start_date=date(2026, 1, 1), status="active")
         return guard
 
+    def test_area_export_and_upload_round_trip_uses_site_code_blocks(self):
+        region = Region.objects.get(region_name="Central Three")
+        sites = []
+        for index in range(2):
+            site = Site.objects.create(
+                region=region,
+                site_name=f"Area Workbook Site {index}",
+                site_address="Kampala",
+                day_shift_guards=1,
+                night_shift_guards=0,
+            )
+            Site.objects.filter(pk=site.pk).update(site_code=f"AREA-SITE-{index:03d}")
+            site.refresh_from_db()
+            site.guards.add(self.create_guard(f"AreaWorkbook{index}", region))
+            sites.append(site)
+
+        login_test_staff(self.client, "area-roster-round-trip")
+        exported = self.client.post(
+            reverse("webroaster:duty_roster_export"),
+            {
+                "deployment_area": region.pk,
+                "site": "",
+                "period_start": "2026-03-02",
+                "period_end": "2026-03-08",
+            },
+        )
+
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(
+            exported["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        rows = read_xlsx_rows(exported.content)
+        title_indices = [
+            index
+            for index, row in enumerate(rows)
+            if row and "Site Roster for" in row[0]
+        ]
+        self.assertEqual(len(title_indices), 2)
+        self.assertIn("AREA-SITE-000", rows[title_indices[0]][0])
+        self.assertIn("AREA-SITE-001", rows[title_indices[1]][0])
+        self.assertEqual(rows[title_indices[1] - 5 : title_indices[1]], [[], [], [], [], []])
+
+        uploaded = self.client.post(
+            reverse("webroaster:duty_roster_upload"),
+            {
+                "deployment_area": region.pk,
+                "site": "",
+                "roster_file": SimpleUploadedFile(
+                    "area-roster.xlsx",
+                    exported.content,
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                ),
+            },
+        )
+
+        self.assertRedirects(uploaded, reverse("webroaster:list", kwargs={"model_name": "deployments"}))
+        self.assertEqual(
+            Deployment.objects.filter(site__in=sites, status="active").count(),
+            14,
+        )
+        self.assertEqual(RosterAssignment.objects.filter(site__in=sites).count(), 12)
+
     def test_uploaded_matrix_roster_creates_active_shift_coverage(self):
         region = Region.objects.get(region_name="Central Three")
         site = Site.objects.create(
@@ -562,6 +625,39 @@ class DeploymentAutomationTests(TestCase):
         self.assertFalse(deployment.day_guards.exists())
         self.assertFalse(Attendance.objects.filter(site=site, date=date(2026, 3, 2)).exists())
 
+    def test_roster_upload_page_accepts_shortage_placeholder(self):
+        region = Region.objects.get(region_name="Central Three")
+        site = Site.objects.create(
+            region=region,
+            site_name="Roster Upload Placeholder Site",
+            site_address="Kampala",
+            day_shift_guards=1,
+            night_shift_guards=0,
+        )
+        roster_csv = (
+            "Scheduled Period: 2026-03-01 to 2026-03-01\n"
+            "Pers No,Grade,Name,Contact,Worked days,Su/01\n"
+            "zz,,shortage,,,D\n"
+        )
+        login_test_staff(self.client, "roster-placeholder-upload")
+
+        response = self.client.post(
+            reverse("webroaster:duty_roster_upload"),
+            {
+                "site": site.pk,
+                "roster_file": SimpleUploadedFile(
+                    "shortage-roster.csv",
+                    roster_csv.encode("utf-8"),
+                    content_type="text/csv",
+                ),
+            },
+        )
+
+        self.assertRedirects(response, reverse("webroaster:list", kwargs={"model_name": "deployments"}))
+        deployment = Deployment.objects.get(site=site, status="active")
+        self.assertEqual(deployment.shift_coverage, "day")
+        self.assertFalse(deployment.day_guards.exists())
+
     def test_shortage_placeholder_upload_can_be_replaced_with_an_existing_guard(self):
         region = Region.objects.get(region_name="Central Three")
         site = Site.objects.create(
@@ -572,6 +668,8 @@ class DeploymentAutomationTests(TestCase):
             night_shift_guards=0,
         )
         replacement_guard = self.create_guard("ShortageReplacement", region)
+        replacement_guard.deployment_areas.all().delete()
+        site.guards.add(replacement_guard)
         rows = [
             ["Scheduled Period: 2026-03-01 to 2026-03-01"],
             ["Pers No", "Grade", "Name", "Contact", "Worked days", "Su/01"],

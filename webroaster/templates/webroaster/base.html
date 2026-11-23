@@ -1,4 +1,4 @@
-{% load static %}
+{% load static hr_report_access %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1811,6 +1811,12 @@
                     <a class="nav-link {% if not active_model %}active{% endif %}" href="{% url 'webroaster:home' %}">
                         <i class="bi bi-speedometer2" aria-hidden="true"></i><span>Dashboard</span>
                     </a>
+                    {% can_open_hr_reports request.user as show_hr_reports %}
+                    {% if show_hr_reports %}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'hr_reports' %}active{% endif %}" href="{% url 'webroaster:hr_reports' %}">
+                            <i class="bi bi-people" aria-hidden="true"></i><span>HR Reports</span>
+                        </a>
+                    {% endif %}
                     {% if request.user.is_superuser %}
                         <details class="nav-group" {% if active_model == 'password-management' or active_model == 'audit-logs' %}open{% endif %}>
                             <summary><span class="nav-heading">Admin</span></summary>

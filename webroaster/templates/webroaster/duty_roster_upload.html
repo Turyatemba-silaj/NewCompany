@@ -17,6 +17,11 @@
         {% csrf_token %}
         {{ form.non_field_errors }}
         <div class="field">
+            {{ form.deployment_area.label_tag }}
+            {{ form.deployment_area }}
+            {{ form.deployment_area.errors }}
+        </div>
+        <div class="field">
             {{ form.site.label_tag }}
             {{ form.site }}
             {{ form.site.errors }}
@@ -34,10 +39,6 @@
                 {% endfor %}
             </div>
         {% endif %}
-
-        <div class="panel muted-panel">
-            Accepted formats: monthly duty roster matrix with your company header, Deployment Area, Scheduled Period, Pers No, Name, and date columns like Su/26 using D, N, or O; or row CSV with site_id/site_name, guard_id/employee_id/employee_name, shift_date/start_date, optional end_date, shift_type, start_time, hours_per_shift, off. D/N assignments create active coverage and expected attendance. Use Pers No "zz" and Name "shortage" for an unassigned coverage slot; edit the deployment later to select a replacement guard.
-        </div>
 
         <div class="actions">
             <button class="btn primary" type="submit">Upload Roster</button>

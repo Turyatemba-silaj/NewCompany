@@ -17,6 +17,11 @@
         {% csrf_token %}
         {{ form.non_field_errors }}
         <div class="field">
+            {{ form.deployment_area.label_tag }}
+            {{ form.deployment_area }}
+            {{ form.deployment_area.errors }}
+        </div>
+        <div class="field">
             {{ form.site.label_tag }}
             {{ form.site }}
             {{ form.site.errors }}

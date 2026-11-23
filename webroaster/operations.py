@@ -433,6 +433,9 @@ def infer_site_name_from_matrix(rows):
 def find_site_by_name(site_name):
     if not site_name:
         raise ValueError("Select a site or include a recognizable site name in the roster heading.")
+    exact_code = Site.objects.filter(site_code__iexact=site_name).first()
+    if exact_code:
+        return exact_code
     exact = Site.objects.filter(site_name__iexact=site_name).first()
     if exact:
         return exact
@@ -697,7 +700,30 @@ def import_matrix_roster(rows, selected_site):
     return saved_count
 
 
-def import_flat_roster(decoded_file, selected_site):
+def import_area_matrix_roster(rows, selected_area):
+    section_starts = []
+    for index, row in enumerate(rows):
+        line = " ".join(cell.strip() for cell in row if cell.strip())
+        if "site roster for" in line.casefold():
+            section_starts.append(index)
+    if not section_starts:
+        raise ValueError("Each deployment-area roster block must include its site code in the Site Roster heading.")
+
+    saved_count = 0
+    for index, section_start in enumerate(section_starts):
+        section_end = section_starts[index + 1] if index + 1 < len(section_starts) else len(rows)
+        section = rows[section_start:section_end]
+        site_name = infer_site_name_from_matrix(section)
+        site = find_site_by_name(site_name)
+        if site.region_id != selected_area.pk:
+            raise ValueError(f"{site} is not in the selected deployment area.")
+        if not is_matrix_roster(section):
+            raise ValueError(f"The roster section for {site} is missing its Pers No / Name table.")
+        saved_count += import_matrix_roster(section, site)
+    return saved_count
+
+
+def import_flat_roster(decoded_file, selected_site, selected_area=None):
     reader = csv.DictReader(io.StringIO(decoded_file, newline=""), dialect=detect_roster_dialect(decoded_file))
     saved_count = 0
     line_number = 1
@@ -707,6 +733,8 @@ def import_flat_roster(decoded_file, selected_site):
             continue
 
         site = get_roster_site(row, selected_site)
+        if selected_area and site.region_id != selected_area.pk:
+            raise ValueError(f"{site} is not in the selected deployment area.")
         guard = get_roster_guard(row)
         shift_date = parse_roster_date(csv_value(row, "shift_date", "date", "duty_date", "start_date"))
         end_date_value = csv_value(row, "end_date", "deployment_end_date")
@@ -859,9 +887,8 @@ def monthly_roster_assignments(site, period_start, period_end):
     return assignments
 
 
-def build_monthly_roster_matrix(site, period_start, period_end):
+def _build_monthly_roster_matrix(site, period_start, period_end, assignments):
     dates = roster_period_dates(period_start, period_end)
-    assignments = monthly_roster_assignments(site, period_start, period_end)
     guards = export_roster_staff(site, period_start, period_end)
     row_by_guard_id = {}
 
@@ -921,6 +948,11 @@ def build_monthly_roster_matrix(site, period_start, period_end):
     return dates, rows + shortage_rows
 
 
+def build_monthly_roster_matrix(site, period_start, period_end):
+    assignments = monthly_roster_assignments(site, period_start, period_end)
+    return _build_monthly_roster_matrix(site, period_start, period_end, assignments)
+
+
 def next_roster_period(period_start, period_end):
     next_start = period_end + timezone.timedelta(days=1)
     if period_start.day == 1 and next_start.day == 1:
@@ -936,9 +968,9 @@ def roster_site_reference(site):
     return site.site_name
 
 
-def write_monthly_roster_csv(response, site, period_start, period_end):
+def _write_monthly_roster_csv(response, site, period_start, period_end, assignments):
     company_name = getattr(settings, "COMPANY_NAME", "NewCompany")
-    dates, rows = build_monthly_roster_matrix(site, period_start, period_end)
+    dates, rows = _build_monthly_roster_matrix(site, period_start, period_end, assignments)
     writer = csv.writer(response)
     trailing_blanks = [""] * len(dates)
     generated_at = timezone.localtime().strftime("%Y-%m-%d %H:%M")
@@ -970,6 +1002,140 @@ def write_monthly_roster_csv(response, site, period_start, period_end):
         ])
 
 
+def write_monthly_roster_csv(response, site, period_start, period_end):
+    assignments = monthly_roster_assignments(site, period_start, period_end)
+    _write_monthly_roster_csv(response, site, period_start, period_end, assignments)
+
+
+def excel_column_name(column_number):
+    letters = ""
+    while column_number:
+        column_number, remainder = divmod(column_number - 1, 26)
+        letters = chr(65 + remainder) + letters
+    return letters
+
+
+def write_monthly_roster_xlsx(response, sites, period_start, period_end):
+    if not sites:
+        raise ValueError("The selected deployment area has no sites to export.")
+
+    assignments = monthly_roster_assignments(sites[0], period_start, period_end)
+    rows = []
+    for index, site in enumerate(sites):
+        csv_buffer = io.StringIO(newline="")
+        _write_monthly_roster_csv(csv_buffer, site, period_start, period_end, assignments)
+        site_rows = list(csv.reader(io.StringIO(csv_buffer.getvalue(), newline="")))
+        if site_rows:
+            heading_prefix, _separator, _old_reference = site_rows[0][0].partition(" Site Roster for ")
+            site_rows[0][0] = f"{heading_prefix} Site Roster for {site.site_code or site.site_name}"
+        if index:
+            rows.extend([[] for _ in range(5)])
+        rows.extend(site_rows)
+
+    spreadsheet_namespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    office_relationship_namespace = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    package_relationship_namespace = "http://schemas.openxmlformats.org/package/2006/relationships"
+    content_types_namespace = "http://schemas.openxmlformats.org/package/2006/content-types"
+    xml_namespace = "http://www.w3.org/XML/1998/namespace"
+
+    workbook = ET.Element(f"{{{spreadsheet_namespace}}}workbook")
+    sheets = ET.SubElement(workbook, f"{{{spreadsheet_namespace}}}sheets")
+    ET.SubElement(
+        sheets,
+        f"{{{spreadsheet_namespace}}}sheet",
+        {
+            "name": "Roster",
+            "sheetId": "1",
+            f"{{{office_relationship_namespace}}}id": "rId1",
+        },
+    )
+
+    worksheet = ET.Element(f"{{{spreadsheet_namespace}}}worksheet")
+    sheet_data = ET.SubElement(worksheet, f"{{{spreadsheet_namespace}}}sheetData")
+    for row_number, values in enumerate(rows, start=1):
+        row_element = ET.SubElement(
+            sheet_data,
+            f"{{{spreadsheet_namespace}}}row",
+            {"r": str(row_number)},
+        )
+        for column_number, value in enumerate(values, start=1):
+            cell_reference = f"{excel_column_name(column_number)}{row_number}"
+            cell = ET.SubElement(
+                row_element,
+                f"{{{spreadsheet_namespace}}}c",
+                {"r": cell_reference, "t": "inlineStr"},
+            )
+            inline_string = ET.SubElement(cell, f"{{{spreadsheet_namespace}}}is")
+            text = ET.SubElement(
+                inline_string,
+                f"{{{spreadsheet_namespace}}}t",
+                {f"{{{xml_namespace}}}space": "preserve"},
+            )
+            text.text = str(value or "")
+
+    relationships = ET.Element(f"{{{package_relationship_namespace}}}Relationships")
+    ET.SubElement(
+        relationships,
+        f"{{{package_relationship_namespace}}}Relationship",
+        {
+            "Id": "rId1",
+            "Type": f"{office_relationship_namespace}/officeDocument",
+            "Target": "xl/workbook.xml",
+        },
+    )
+
+    workbook_relationships = ET.Element(f"{{{package_relationship_namespace}}}Relationships")
+    ET.SubElement(
+        workbook_relationships,
+        f"{{{package_relationship_namespace}}}Relationship",
+        {
+            "Id": "rId1",
+            "Type": f"{office_relationship_namespace}/worksheet",
+            "Target": "worksheets/sheet1.xml",
+        },
+    )
+
+    content_types = ET.Element(f"{{{content_types_namespace}}}Types")
+    ET.SubElement(
+        content_types,
+        f"{{{content_types_namespace}}}Default",
+        {
+            "Extension": "rels",
+            "ContentType": "application/vnd.openxmlformats-package.relationships+xml",
+        },
+    )
+    ET.SubElement(
+        content_types,
+        f"{{{content_types_namespace}}}Default",
+        {"Extension": "xml", "ContentType": "application/xml"},
+    )
+    ET.SubElement(
+        content_types,
+        f"{{{content_types_namespace}}}Override",
+        {
+            "PartName": "/xl/workbook.xml",
+            "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
+        },
+    )
+    ET.SubElement(
+        content_types,
+        f"{{{content_types_namespace}}}Override",
+        {
+            "PartName": "/xl/worksheets/sheet1.xml",
+            "ContentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml",
+        },
+    )
+
+    workbook_buffer = io.BytesIO()
+    with zipfile.ZipFile(workbook_buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", ET.tostring(content_types, encoding="utf-8", xml_declaration=True))
+        archive.writestr("_rels/.rels", ET.tostring(relationships, encoding="utf-8", xml_declaration=True))
+        archive.writestr("xl/workbook.xml", ET.tostring(workbook, encoding="utf-8", xml_declaration=True))
+        archive.writestr("xl/_rels/workbook.xml.rels", ET.tostring(workbook_relationships, encoding="utf-8", xml_declaration=True))
+        archive.writestr("xl/worksheets/sheet1.xml", ET.tostring(worksheet, encoding="utf-8", xml_declaration=True))
+    response.write(workbook_buffer.getvalue())
+
+
 def is_matrix_roster(rows):
     for row in rows:
         normalized = [normalize_header(cell) for cell in row]
@@ -996,14 +1162,32 @@ def duty_roster_export(request):
 
     if request.method == "POST" and form.is_valid():
         site = form.cleaned_data["site"]
+        deployment_area = form.cleaned_data["deployment_area"]
         period_start = form.cleaned_data["period_start"]
         period_end = form.cleaned_data["period_end"]
-        filename = f"duty-roster-{site.site_name}-{period_start:%Y%m%d}-{period_end:%Y%m%d}.csv"
-        filename = re.sub(r"[^A-Za-z0-9_.-]+", "-", filename).strip("-")
-        response = HttpResponse(content_type="text/csv")
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
-        write_monthly_roster_csv(response, site, period_start, period_end)
-        return response
+        if deployment_area:
+            sites = list(
+                Site.objects.filter(region=deployment_area, status="active")
+                .order_by("site_code", "site_name")
+            )
+            if not sites:
+                form.add_error("deployment_area", "There are no active sites in this deployment area.")
+            else:
+                filename = f"duty-roster-{deployment_area.region_name}-{period_start:%Y%m%d}-{period_end:%Y%m%d}.xlsx"
+                filename = re.sub(r"[^A-Za-z0-9_.-]+", "-", filename).strip("-")
+                response = HttpResponse(
+                    content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+                response["Content-Disposition"] = f'attachment; filename="{filename}"'
+                write_monthly_roster_xlsx(response, sites, period_start, period_end)
+                return response
+        else:
+            filename = f"duty-roster-{site.site_name}-{period_start:%Y%m%d}-{period_end:%Y%m%d}.csv"
+            filename = re.sub(r"[^A-Za-z0-9_.-]+", "-", filename).strip("-")
+            response = HttpResponse(content_type="text/csv")
+            response["Content-Disposition"] = f'attachment; filename="{filename}"'
+            write_monthly_roster_csv(response, site, period_start, period_end)
+            return response
 
     context = {
         "title": "Export Duty Roster",
@@ -1019,6 +1203,7 @@ def duty_roster_upload(request):
     errors = []
 
     if request.method == "POST" and form.is_valid():
+        selected_area = form.cleaned_data.get("deployment_area")
         selected_site = form.cleaned_data.get("site")
         uploaded_file = form.cleaned_data["roster_file"]
         raw_data = uploaded_file.read()
@@ -1033,11 +1218,14 @@ def duty_roster_upload(request):
         try:
             with transaction.atomic():
                 if is_matrix_roster(rows):
-                    saved_count = import_matrix_roster(rows, selected_site)
+                    if selected_area:
+                        saved_count = import_area_matrix_roster(rows, selected_area)
+                    else:
+                        saved_count = import_matrix_roster(rows, selected_site)
                 else:
                     if is_xlsx_upload(uploaded_file):
                         raise ValueError("Excel uploads must use the monthly roster format with Pers No, Name, and date columns.")
-                    saved_count, line_number = import_flat_roster(decoded_file, selected_site)
+                    saved_count, line_number = import_flat_roster(decoded_file, selected_site, selected_area)
         except Exception as exc:
             errors.append(str(exc))
             saved_count = 0

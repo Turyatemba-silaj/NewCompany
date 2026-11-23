@@ -480,6 +480,7 @@ class DeploymentForm(DateRangeValidationMixin, StyledModelForm):
             assigned_ids = [
                 *self.instance.day_guards.values_list("pk", flat=True),
                 *self.instance.night_guards.values_list("pk", flat=True),
+                *site.guards.values_list("pk", flat=True),
             ]
         return (
             base_queryset.filter(
@@ -576,14 +577,46 @@ class DeploymentAreaForm(DateRangeValidationMixin, StyledModelForm):
 
 
 class DutyRosterUploadForm(forms.Form):
-    site = forms.ModelChoiceField(queryset=Site.objects.all(), required=False)
+    deployment_area = forms.ModelChoiceField(
+        queryset=Region.objects.all(),
+        required=False,
+        label="Deployment Area",
+    )
+    site = forms.ModelChoiceField(
+        queryset=Site.objects.select_related("region").all(),
+        required=False,
+        label="Single Site",
+    )
     roster_file = forms.FileField()
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("deployment_area") and cleaned_data.get("site"):
+            raise forms.ValidationError("Select either a deployment area or a single site, not both.")
+        return cleaned_data
 
 
 class DutyRosterExportForm(forms.Form):
-    site = forms.ModelChoiceField(queryset=Site.objects.select_related("region", "client").all())
+    deployment_area = forms.ModelChoiceField(
+        queryset=Region.objects.all(),
+        required=False,
+        label="Deployment Area",
+    )
+    site = forms.ModelChoiceField(
+        queryset=Site.objects.select_related("region", "client").all(),
+        required=False,
+        label="Single Site",
+    )
     period_start = forms.DateField(widget=DATE_WIDGET)
     period_end = forms.DateField(widget=DATE_WIDGET)
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("deployment_area") and cleaned_data.get("site"):
+            raise forms.ValidationError("Select either a deployment area or a single site, not both.")
+        if not cleaned_data.get("deployment_area") and not cleaned_data.get("site"):
+            raise forms.ValidationError("Select a deployment area or a single site.")
+        return cleaned_data
 
 
 class SupervisorDutyChecklistForm(forms.Form):

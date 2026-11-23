@@ -1,0 +1,99 @@
+{% extends "webroaster/base.html" %}
+{% block title %}{{ title }} · HR Reports{% endblock %}
+{% block content %}
+<style>
+.hr-reports { display:grid; gap:18px; color:#142139; }
+.hr-reports h1,.hr-reports h2 { margin:0; }
+.hr-report-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:12px; }
+.hr-report-card { display:grid; align-content:start; gap:4px; border:1px solid #d6e2ee; border-left:4px solid #3971a7; padding:12px 15px; border-radius:10px; background:#f1f7ff; color:#18486a; text-decoration:none; }
+.hr-report-card strong { font-size:1.55rem; line-height:1.15; }
+.hr-report-card.green { background:#ecfdf5; color:#14532d; border-left-color:#168052; }
+.hr-report-card.amber { background:#fffbeb; color:#78350f; border-left-color:#b45309; }
+.hr-report-card.red { background:#fef2f2; color:#991b1b; border-left-color:#b91c1c; }
+.hr-report-panel { border:1px solid #dce4ed; background:#fff; border-radius:14px; padding:clamp(12px,2vw,22px); min-width:0; }
+.hr-report-tabs,.hr-report-filters { display:flex; flex-wrap:wrap; align-items:end; gap:9px; }
+.hr-report-tabs { margin-bottom:18px; }
+.hr-report-tabs a { padding:5px 10px; border-radius:6px; border:1px solid #dbe3eb; color:#294564; text-decoration:none; }
+.hr-report-tabs a[aria-current] { background:#204a6c; color:#fff; border-color:#204a6c; }
+.hr-report-filters { margin:14px 0; }
+.hr-report-filters label { display:grid; gap:4px; font-weight:600; }
+.hr-report-filters select,.hr-report-filters input { background:#fff; color:#142139; border:1px solid #c9d6e4; border-radius:6px; padding:6px 8px; }
+.hr-results { overflow:auto; margin-top:12px; }
+.hr-results table { width:100%; border-collapse:collapse; }
+.hr-results th,.hr-results td { text-align:left; padding:8px 10px; border-bottom:1px solid #e4eaf1; vertical-align:top; }
+.hr-results th { background:#edf3f8; white-space:nowrap; }
+.hr-results tbody tr:nth-child(even) { background:#f8fafc; }
+.hr-badge { padding:2px 7px; background:#fef3c7; color:#78350f; border-radius:5px; white-space:nowrap; }
+.hr-badge.expired { background:#fee2e2; color:#991b1b; }
+.hr-report-note { margin:0 0 8px; color:#475569; }
+</style>
+<div class="hr-reports">
+    <h1>HR Reports</h1>
+    <div class="hr-report-cards" aria-label="HR dashboard">
+        {% for label, count, report, color, filter in cards %}
+            <a class="hr-report-card {{ color }}" href="?report={{ report }}&amp;department={{ department|urlencode }}{% if filter %}&amp;status={{ filter|urlencode }}{% endif %}">
+                <strong>{{ count }}</strong><span>{{ label }}</span>
+            </a>
+        {% endfor %}
+    </div>
+    <section class="hr-report-panel" aria-labelledby="hr-report-title">
+        <nav class="hr-report-tabs" aria-label="Choose an HR report">
+            {% for key, label in report_menu %}
+                <a href="?report={{ key }}&amp;department={{ department|urlencode }}&amp;from={{ start|date:'Y-m-d' }}&amp;to={{ end|date:'Y-m-d' }}"{% if key == report_key %} aria-current="page"{% endif %}>{{ label }}</a>
+            {% endfor %}
+        </nav>
+        <h2 id="hr-report-title">{{ title }}</h2>
+        <form class="hr-report-filters" method="get">
+            <input type="hidden" name="report" value="{{ report_key }}">
+            <label>Department
+                <select name="department">
+                    <option value="">All departments</option>
+                    {% for key, label in department_choices %}
+                        <option value="{{ key }}"{% if key == department %} selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% if show_period %}
+                <label>From <input type="date" name="from" value="{{ start|date:'Y-m-d' }}"></label>
+                <label>To <input type="date" name="to" value="{{ end|date:'Y-m-d' }}"></label>
+            {% else %}
+                <input type="hidden" name="from" value="{{ start|date:'Y-m-d' }}">
+                <input type="hidden" name="to" value="{{ end|date:'Y-m-d' }}">
+            {% endif %}
+            {% if expiry_statuses %}
+                <label>Expiry status
+                    <select name="status">
+                        <option value="">All statuses</option>
+                        {% for option in expiry_statuses %}
+                            <option{% if option == status %} selected{% endif %}>{{ option }}</option>
+                        {% endfor %}
+                    </select>
+                </label>
+            {% endif %}
+            <button class="btn primary" type="submit">Apply filters</button>
+            <button class="btn" type="submit" name="export" value="csv">Download CSV</button>
+        </form>
+        {% if report_key == 'attendance' %}
+            <p class="hr-report-note">Counts use recorded attendance. A replacement shift is credited to the employee who worked it. Unmarked roster entries are outside these counts.</p>
+        {% elif report_key == 'contracts' %}
+            <p class="hr-report-note">Each row represents an employment contract document and its recorded expiry. Older documents can appear alongside renewals.</p>
+        {% elif report_key == 'leave' %}
+            <p class="hr-report-note">The expected return is the calendar day after approved leave ends.</p>
+        {% elif report_key == 'movements' %}
+            <p class="hr-report-note">Exit clearance dates come from clearance records.</p>
+        {% endif %}
+        <div class="hr-results" role="region" aria-label="Report results" tabindex="0">
+            <table>
+                <thead><tr>{% for column in columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>{% for cell in row %}<td>{% if cell == 'Expired' %}<span class="hr-badge expired">{{ cell }}</span>{% elif cell == 'Expiring soon' %}<span class="hr-badge">{{ cell }}</span>{% else %}{{ cell|default_if_none:"—" }}{% endif %}</td>{% endfor %}</tr>
+                    {% empty %}
+                        <tr><td colspan="{{ columns|length }}">No records match these filters.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

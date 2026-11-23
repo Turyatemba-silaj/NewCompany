@@ -3,6 +3,7 @@ from django.contrib.auth.decorators import user_passes_test
 from django.urls import path
 
 from webroaster import accounts, finance, hr, operations, public, records, views
+from webroaster.hr_reports import hr_reports
 
 app_name = "webroaster"
 
@@ -23,6 +24,7 @@ urlpatterns = [
     path("resources/", public.public_page, {"page": "resources"}, name="resources"),
     path("careers/", public.careers, name="careers"),
     path("careers/<int:pk>/", public.job_detail, name="job_detail"),
+    path("hr/reports/", hr_reports, name="hr_reports"),
     path("dashboard/", staff_required(views.home), name="home"),
     path("site-contract-dashboard/", staff_required(records.site_contract_dashboard), name="site_contract_dashboard"),
     path("staff/password-management/", staff_required(accounts.password_management), name="password_management"),
