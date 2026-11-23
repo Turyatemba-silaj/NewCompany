@@ -1,0 +1,67 @@
+{% extends "webroaster/base.html" %}
+{% block title %}{{ title }} · Finance{% endblock %}
+{% block content %}
+<style>
+.finance-reports { display:grid; gap:18px; color:#142139; }
+.finance-reports h1,.finance-reports h2 { margin:0; }
+.finance-tabs,.finance-filters { display:flex; flex-wrap:wrap; align-items:end; gap:8px; }
+.finance-tabs a { padding:6px 10px; border-radius:6px; border:1px solid #dbe3eb; color:#294564; text-decoration:none; }
+.finance-tabs a[aria-current] { background:#204a6c; color:#fff; border-color:#204a6c; }
+.finance-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+.finance-card { display:grid; align-content:start; gap:6px; border:1px solid #d6e2ee; border-left:4px solid #3971a7; padding:14px; border-radius:10px; background:#f1f7ff; color:#18486a; text-decoration:none; }
+.finance-card strong { font-size:1.2rem; }
+.finance-panel { border:1px solid #dce4ed; background:#fff; border-radius:14px; padding:clamp(12px,2vw,22px); min-width:0; }
+.finance-filters { margin:14px 0; }
+.finance-filters label { display:grid; gap:4px; font-weight:600; }
+.finance-filters input { background:#fff; color:#142139; border:1px solid #c9d6e4; border-radius:6px; padding:6px 8px; }
+.finance-results { overflow:auto; }
+.finance-results table { width:100%; border-collapse:collapse; }
+.finance-results th,.finance-results td { text-align:left; padding:8px 10px; border-bottom:1px solid #e4eaf1; vertical-align:top; }
+.finance-results th { background:#edf3f8; white-space:nowrap; }
+.finance-results tbody tr:nth-child(even) { background:#f8fafc; }
+.finance-note { color:#475569; }
+</style>
+<div class="finance-reports">
+    <h1>{{ title }}</h1>
+    <nav class="finance-tabs" aria-label="Finance reports">
+        <a href="?"{% if report_key == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+        {% for key, label in reports %}
+            <a href="?report={{ key }}"{% if key == report_key %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+    {% if report_key == 'overview' %}
+        <div class="finance-cards">
+            {% for label, amount, key in cards %}
+                <a href="?report={{ key }}" class="finance-card">
+                    <span>{{ label }}</span><strong>UGX {{ amount|floatformat:"2g" }}</strong>
+                </a>
+            {% endfor %}
+        </div>
+    {% else %}
+        <section class="finance-panel">
+            <form class="finance-filters" method="get">
+                <input type="hidden" name="report" value="{{ report_key }}">
+                {% if not as_of %}
+                    <label>From <input type="date" name="from" value="{{ start|date:'Y-m-d' }}"></label>
+                {% endif %}
+                <label>{% if as_of %}As of{% else %}To{% endif %} <input type="date" name="to" value="{{ end|date:'Y-m-d' }}"></label>
+                <button class="btn primary" type="submit">Apply dates</button>
+                <button class="btn" type="submit" name="export" value="csv">Download CSV</button>
+            </form>
+            <p class="finance-note">{{ note }}</p>
+            <div class="finance-results" tabindex="0" role="region" aria-label="Report results">
+                <table>
+                    <thead><tr>{% for heading in columns %}<th scope="col">{{ heading }}</th>{% endfor %}</tr></thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr>{% for cell in row %}<td>{{ cell|default_if_none:"—" }}</td>{% endfor %}</tr>
+                        {% empty %}
+                            <tr><td colspan="{{ columns|length }}">No records match the selected dates.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}

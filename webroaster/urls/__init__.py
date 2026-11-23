@@ -1,5 +1,6 @@
 ﻿from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import user_passes_test
+from webroaster.finance_reports import finance_reports
 from django.urls import path
 
 from webroaster import accounts, finance, hr, operations, public, records, views
@@ -61,6 +62,7 @@ urlpatterns = [
     path("budgets/notifications/", staff_required(finance.budget_report), name="budget_notifications"),
     path("expenses/report/", staff_required(finance.expense_report), name="expense_report"),
     path("expenses/notifications/", staff_required(finance.expense_report), name="expense_notifications"),
+    path("finance/reports/", finance_reports, name="finance_reports"),
     path("finance/aging-report/", staff_required(finance.aging_report), name="aging_report"),
     path("api/procurement/", staff_required(finance.procurement_api_index), name="procurement_api_index"),
     path("api/payouts/", staff_required(finance.payout_api_index), name="payout_api_index"),
