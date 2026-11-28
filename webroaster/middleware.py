@@ -38,6 +38,7 @@ class PasswordExpiryMiddleware:
         "/staff/logout/",
         "/staff/forgot-password/",
         "/staff/password-expired/",
+        "/staff/set-password/",
         "/static/",
         "/media/",
     )
@@ -87,12 +88,15 @@ class RequestAuditMiddleware:
     def write_audit_log(self, request, response):
         user = request.user
         ip_address = self.client_ip(request)
+        path = request.path[:500]
+        if request.path.startswith("/staff/set-password/"):
+            path = "/staff/set-password/[redacted]/"
         try:
             AuditLog.objects.create(
                 user=user,
                 username=user.get_username(),
                 action=self.classify_action(request),
-                path=request.path[:500],
+                path=path,
                 method=request.method,
                 status_code=getattr(response, "status_code", 0) or 0,
                 ip_address=ip_address,

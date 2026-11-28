@@ -1,12 +1,13 @@
 ﻿from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.shortcuts import redirect
 
 ROLE_GROUPS = {
     "Supervisor": {
         "models": {"attendance", "deployments"},
-        "views": {"leave_notifications", "leave_notification_action", "advance_notifications", "advance_notification_action", "supervisor_checklist"},
+        "views": {"leave_notifications", "leave_notification_action", "supervisor_checklist"},
     },
     "Human Resources": {
         "models": {
@@ -56,6 +57,8 @@ ROLE_GROUPS = {
             "leave_notifications",
             "leave_notification_action",
             "supervisor_checklist",
+            "advance_notifications",
+            "advance_notification_action",
         },
     },
     "Finance Officer": {
@@ -153,6 +156,11 @@ MODEL_PERMISSION_NAMES = {
 }
 
 ROLE_PERMISSION_ACTIONS = ("view", "add", "change", "delete")
+ROLE_ADVANCE_PERMISSIONS = {
+    "Operations Manager": "verify_advance",
+    "Human Resources": "approve_advance",
+    "Finance Officer": "pay_advance",
+}
 
 
 def role_group_permission_queryset(group_or_name):
@@ -162,34 +170,22 @@ def role_group_permission_queryset(group_or_name):
     codenames = []
     for model_name in model_names:
         codenames.extend(f"{action}_{model_name}" for action in ROLE_PERMISSION_ACTIONS)
+    advance_permission = ROLE_ADVANCE_PERMISSIONS.get(group_name)
+    if advance_permission:
+        codenames.append(advance_permission)
     return Permission.objects.filter(content_type__app_label="webroaster", codename__in=codenames)
 
 
 def sync_role_group_permissions(group):
-    permissions = role_group_permission_queryset(group)
-    if group.name in ROLE_GROUPS or group.name == "Head of Finance":
-        group.permissions.set(permissions)
-    return permissions
+    return role_group_permission_queryset(group)
 
 
 def sync_role_groups():
     groups = []
     for group_name in ROLE_GROUPS:
         group, _created = Group.objects.get_or_create(name=group_name)
-        sync_role_group_permissions(group)
         groups.append(group)
     return groups
-
-DEFAULT_USERS = {
-    "supervisor": "Supervisor",
-    "hr": "Human Resources",
-    "operation_manager": "Operations Manager",
-    "finance_officer": "Finance Officer",
-    "head_of_finance": "Head of Finance",
-}
-
-DEFAULT_PASSWORD = "ChangeMe123!"
-
 
 def user_group_names(user):
     if not getattr(user, "is_authenticated", False):
@@ -205,7 +201,7 @@ def user_allowed_models(user):
         return None
     restricted_groups = group_names.intersection(ROLE_GROUPS)
     if not restricted_groups:
-        return None
+        return set()
     allowed = set()
     for group_name in restricted_groups:
         allowed.update(ROLE_GROUPS[group_name].get("models", set()))
@@ -220,7 +216,7 @@ def user_allowed_views(user):
         return None
     restricted_groups = group_names.intersection(ROLE_GROUPS)
     if not restricted_groups:
-        return None
+        return set()
     allowed = set()
     for group_name in restricted_groups:
         allowed.update(ROLE_GROUPS[group_name].get("views", set()))
@@ -228,17 +224,12 @@ def user_allowed_views(user):
 
 
 def advance_notification_groups(user):
-    if getattr(user, "is_superuser", False):
-        return None
-    groups = user_group_names(user)
-    if not groups.intersection(ROLE_GROUPS):
-        return None
     allowed = set()
-    if "Supervisor" in groups or "Operations Manager" in groups:
+    if user.has_perm("webroaster.verify_advance"):
         allowed.add("Supervisor")
-    if "Human Resources" in groups:
+    if user.has_perm("webroaster.approve_advance"):
         allowed.update({"HR Officer", "HR Approver"})
-    if "Finance Officer" in groups or "Head of Finance" in groups:
+    if user.has_perm("webroaster.pay_advance"):
         allowed.add("Finance")
     return allowed
 
@@ -248,7 +239,7 @@ def leave_notification_groups(user):
         return None
     groups = user_group_names(user)
     if not groups.intersection(ROLE_GROUPS):
-        return None
+        return set()
     allowed = set()
     if "Supervisor" in groups or "Operations Manager" in groups:
         allowed.add("Verifier")
@@ -297,6 +288,195 @@ def can_access_view(user, view_name):
     return allowed is None or view_name in allowed
 
 
+def _active_employee_for_workflow(user, advance):
+    if not getattr(user, "is_authenticated", False) or not user.is_active:
+        return None
+    employee = employee_for_user(user)
+    if not employee or employee.status != "active" or employee.pk == advance.employee_id:
+        return None
+    return employee
+
+
+def can_verify_advance(user, advance):
+    return bool(
+        getattr(user, "is_authenticated", False)
+        and user.has_perm("webroaster.verify_advance")
+        and _active_employee_for_workflow(user, advance)
+        and advance.verification_status == "pending"
+        and advance.approval_status == "pending"
+        and advance.status == "pending"
+    )
+
+
+def can_approve_advance(user, advance):
+    return bool(
+        getattr(user, "is_authenticated", False)
+        and user.has_perm("webroaster.approve_advance")
+        and _active_employee_for_workflow(user, advance)
+        and advance.verification_status == "verified"
+        and advance.approval_status == "pending"
+        and advance.status == "pending"
+    )
+
+
+def can_pay_advance(user, advance):
+    return bool(
+        getattr(user, "is_authenticated", False)
+        and user.has_perm("webroaster.pay_advance")
+        and _active_employee_for_workflow(user, advance)
+        and advance.verification_status == "verified"
+        and advance.approval_status == "approved"
+        and advance.status == "pending"
+    )
+
+
+def _access_actor_has_permission(actor, permission):
+    return bool(
+        actor
+        and actor.is_authenticated
+        and actor.is_active
+        and actor.is_staff
+        and (actor.is_superuser or actor.has_perm(permission))
+    )
+
+
+def change_user_access(
+    actor,
+    user,
+    *,
+    groups=None,
+    permissions=None,
+    is_active=None,
+    action="update_user_access",
+    system_termination=False,
+):
+    termination_event = (
+        system_termination
+        and actor is None
+        and action == "deactivate_terminated_employee"
+        and is_active is False
+        and groups is None
+        and permissions is None
+    )
+    if not termination_event and not _access_actor_has_permission(actor, "auth.change_user"):
+        raise PermissionDenied("You are not authorized to change user access.")
+
+    from .models import AccessChangeLog
+
+    User = get_user_model()
+    with transaction.atomic():
+        target = User.objects.select_for_update().get(pk=user.pk)
+        previous = {
+            "groups": sorted(target.groups.values_list("name", flat=True)),
+            "permissions": sorted(
+                target.user_permissions.values_list("codename", flat=True)
+            ),
+            "is_active": target.is_active,
+        }
+        if groups is not None:
+            target.groups.set(groups)
+        if permissions is not None:
+            target.user_permissions.set(permissions)
+        if is_active is not None:
+            target.is_active = is_active
+            target.save(update_fields=["is_active"])
+        current = {
+            "groups": sorted(target.groups.values_list("name", flat=True)),
+            "permissions": sorted(
+                target.user_permissions.values_list("codename", flat=True)
+            ),
+            "is_active": target.is_active,
+        }
+        if previous != current:
+            AccessChangeLog.objects.create(
+                actor=actor,
+                affected_user=target,
+                action=action,
+                previous_values=previous,
+                new_values=current,
+            )
+    return target
+
+
+def change_group_permissions(actor, group, permissions, *, adding=False):
+    permission = "auth.add_group" if adding else "auth.change_group"
+    if not _access_actor_has_permission(actor, permission):
+        raise PermissionDenied("You are not authorized to change group permissions.")
+
+    from .models import AccessChangeLog
+
+    with transaction.atomic():
+        target = Group.objects.select_for_update().get(pk=group.pk)
+        previous = sorted(
+            target.permissions.values_list("content_type__app_label", "codename")
+        )
+        target.permissions.set(permissions)
+        current = sorted(
+            target.permissions.values_list("content_type__app_label", "codename")
+        )
+        if previous != current:
+            AccessChangeLog.objects.create(
+                actor=actor,
+                affected_group=target,
+                action="update_group_permissions",
+                previous_values={"permissions": previous},
+                new_values={"permissions": current},
+            )
+    return target
+
+
+def provision_user(actor, *, username, first_name, last_name, email, group, permissions):
+    if not _access_actor_has_permission(actor, "auth.add_user"):
+        raise PermissionDenied("You are not authorized to provision user accounts.")
+
+    from .models import AccessChangeLog
+
+    User = get_user_model()
+    with transaction.atomic():
+        user = User(
+            username=username,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            is_staff=True,
+            is_active=True,
+            is_superuser=False,
+        )
+        user.set_unusable_password()
+        user.save()
+        if group:
+            user.groups.set([group])
+        user.user_permissions.set(permissions)
+        AccessChangeLog.objects.create(
+            actor=actor,
+            affected_user=user,
+            action="invite_user",
+            previous_values={},
+            new_values={
+                "groups": [group.name] if group else [],
+                "permissions": sorted(
+                    user.user_permissions.values_list("codename", flat=True)
+                ),
+                "is_active": user.is_active,
+            },
+        )
+    return user
+
+
+def deactivate_for_termination(user):
+    if not user.is_active:
+        return False
+
+    change_user_access(
+        None,
+        user,
+        is_active=False,
+        action="deactivate_terminated_employee",
+        system_termination=True,
+    )
+    return True
+
+
 def require_model_access(request, model_name):
     if not can_access_model(request.user, model_name):
         raise PermissionDenied("You do not have permission to open this module.")
@@ -332,30 +512,5 @@ def redirect_to_first_allowed_module(user):
     if model_name:
         return redirect("webroaster:list", model_name=model_name)
     raise PermissionDenied("No modules are assigned to this account.")
-
-
-def sync_default_role_accounts(password=DEFAULT_PASSWORD):
-    User = get_user_model()
-    created = []
-    updated = []
-    groups_by_name = {group.name: group for group in sync_role_groups()}
-    for username, group_name in DEFAULT_USERS.items():
-        group = groups_by_name[group_name]
-        user, was_created = User.objects.get_or_create(username=username)
-        user.is_staff = True
-        if group_name == "Head of Finance":
-            user.is_superuser = True
-        if was_created or not user.has_usable_password():
-            user.set_password(password)
-        user.save()
-        sync_role_group_permissions(group)
-        user.groups.add(group)
-        if was_created:
-            created.append(username)
-        else:
-            updated.append(username)
-    return created, updated
-
-
 
 

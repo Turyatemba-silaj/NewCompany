@@ -31,43 +31,31 @@
             </tr>
         </thead>
         <tbody>
-            {% for notification in notifications %}
+            {% for row in notifications %}
             <tr>
-                <td>{{ notification.advance.employee }}</td>
-                <td>UGX {{ notification.advance.amount_requested|thousands }}</td>
-                <td>{{ notification.message }}</td>
-                <td><span class="status-pill {% if notification.advance.approval_status == 'approved' %}success{% elif notification.advance.approval_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ notification.advance.get_approval_status_display }}</span></td>
-                <td><span class="status-pill {% if notification.advance.verification_status == 'verified' %}success{% elif notification.advance.verification_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ notification.advance.get_verification_status_display }}</span></td>
-                <td><span class="status-pill {% if notification.status == 'actioned' %}success{% else %}pending{% endif %}">{{ notification.get_status_display }}</span></td>
-                <td>{{ notification.notified_at }}</td>
+                <td>{{ row.advance.employee }}</td>
+                <td>UGX {{ row.advance.amount_requested|thousands }}</td>
+                <td>{% if row.notification %}{{ row.notification.message }}{% else %}Ready for your authorized review.{% endif %}</td>
+                <td><span class="status-pill {% if row.advance.approval_status == 'approved' %}success{% elif row.advance.approval_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ row.advance.get_approval_status_display }}</span></td>
+                <td><span class="status-pill {% if row.advance.verification_status == 'verified' %}success{% elif row.advance.verification_status == 'rejected' %}danger{% else %}pending{% endif %}">{{ row.advance.get_verification_status_display }}</span></td>
+                <td><span class="status-pill pending">Pending</span></td>
+                <td>{% if row.notification %}{{ row.notification.notified_at }}{% else %}{{ row.advance.updated_at }}{% endif %}</td>
                 <td>
-                    {% if notification.can_verify %}
+                    {% if row.can_verify %}
                     <div class="row-action-group">
-                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'verify' %}">
-                            {% csrf_token %}
-                            <button class="action-btn workflow" type="submit">Verify</button>
-                        </form>
+                        <a class="action-btn workflow" href="{% url 'webroaster:advance_workflow_action' row.advance.pk 'verify' %}">Verify</a>
                     </div>
-                    {% elif notification.can_approve %}
+                    {% elif row.can_approve %}
                     <div class="row-action-group">
-                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'approve' %}">
-                            {% csrf_token %}
-                            <button class="action-btn workflow" type="submit">Approve</button>
-                        </form>
-                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'reject' %}">
-                            {% csrf_token %}
-                            <button class="action-btn danger" type="submit">Reject</button>
-                        </form>
+                        <a class="action-btn workflow" href="{% url 'webroaster:advance_workflow_action' row.advance.pk 'approve' %}">Approve</a>
+                        <a class="action-btn danger" href="{% url 'webroaster:advance_workflow_action' row.advance.pk 'reject' %}">Reject</a>
                     </div>
-                    {% elif notification.can_pay %}
+                    {% elif row.can_pay %}
                     <div class="row-action-group">
-                        <form method="post" action="{% url 'webroaster:advance_notification_action' notification.pk 'pay' %}">
-                            {% csrf_token %}
-                            <button class="action-btn workflow" type="submit">Pay</button>
-                        </form>
+                        <a class="action-btn workflow" href="{% url 'webroaster:advance_workflow_action' row.advance.pk 'pay' %}">Pay</a>
                     </div>
                     {% else %}
-                        {{ notification.decision|default:notification.get_notification_type_display }}
+                        Waiting for the next authorized workflow role.
                     {% endif %}
                 </td>
             </tr>

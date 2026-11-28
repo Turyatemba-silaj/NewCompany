@@ -3,10 +3,12 @@ import io
 from tempfile import TemporaryDirectory
 from datetime import date, time, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import Group
+from django.contrib.auth.models import Group, Permission
 from django.core.exceptions import ValidationError
+from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.forms import modelformset_factory
@@ -15,6 +17,8 @@ from django.test import RequestFactory, SimpleTestCase, TestCase, override_setti
 from django.urls import reverse
 from django.utils import timezone
 
+from .access import can_access_model, change_group_permissions, change_user_access, sync_role_group_permissions, user_allowed_models
+from .accounts import AccountEmailDeliveryError, send_account_password_link
 from .finance import salary_payslip_context
 from .forms_base import get_default_shift
 from .forms_finance import AdvanceForm, ExpenseForm, InvoiceForm
@@ -22,7 +26,7 @@ from .views import get_config
 from .forms_hr import DisciplinaryActionForm, EmployeeForm, PerformanceEvaluationForm
 from .forms_operations import DeploymentForm, SiteForm
 from .middleware import RequestAuditMiddleware
-from .models import Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
+from .models import AccessChangeLog, Advance, AdvanceNotification, Attendance, AuditLog, Budget, BudgetNotification, Client, CompanyEvent, Contract, ContractDeliverable, Deployment, DeploymentArea, Disciplinary_Action, DisciplinaryNotification, Employee, Expense, ExpenseNotification, Invoice, InvoiceBillableItem, JobApplication, JobPosting, Leave, LeaveNotification, PatrolCheckpoint, PatrolCheckpointVisit, PatrolRoute, PatrolSession, Paymee, PayrollDeduction, Payment, Performance_Evaluation, GoodsReceivedNote, ProcurementApproval, ProcurementNotification, ProcurementRequisition, PurchaseOrder, Region, RosterAssignment, Salary, SupplierInvoice, SupplierPayment, SupplierProformaInvoice, SupplierProformaItemPrice, Shift, Site, Supplier, WebsiteAdvertisement, WebsiteResource, AssociatedLink
 from .hr import notify_disciplinary_employee
 from .operations import build_monthly_roster_matrix, build_supervisor_checklist_rows, default_monthly_roster_period, import_flat_roster, import_matrix_roster, next_roster_period, parse_scheduled_period, read_xlsx_rows, rotating_scheduled_guards, write_monthly_roster_csv
 
@@ -30,7 +34,8 @@ def login_test_staff(client, username="staff"):
     user, _created = get_user_model().objects.get_or_create(username=username)
     user.set_password("test-pass")
     user.is_staff = True
-    user.save()
+    user.is_superuser = True
+    user.save(update_fields=["password", "is_staff", "is_superuser"])
     client.force_login(user)
     return user
 
@@ -41,6 +46,126 @@ class AdvanceFormTests(SimpleTestCase):
         self.assertIn("disbursement_date", form.fields)
         self.assertEqual(form.fields["disbursement_date"].widget.input_type, "date")
         self.assertIn('type="date"', form["disbursement_date"].as_widget())
+        self.assertNotIn("approval_status", form.fields)
+        self.assertNotIn("verification_status", form.fields)
+        self.assertNotIn("status", form.fields)
+
+
+class AccessAdministrationTests(TestCase):
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_superuser(
+            username="access-admin",
+            email="access-admin@example.com",
+            password="Admin-Password-2026!",
+        )
+        self.user = User.objects.create_user(
+            username="access-staff",
+            email="access-staff@example.com",
+            password="Staff-Password-2026!",
+            is_staff=True,
+        )
+        self.group = Group.objects.get(name="Human Resources")
+
+    def test_unassigned_staff_has_no_business_module_access(self):
+        self.assertEqual(user_allowed_models(self.user), set())
+        self.assertFalse(can_access_model(self.user, "employees"))
+
+    def test_access_change_records_atomic_before_and_after_values(self):
+        change_user_access(
+            self.admin,
+            self.user,
+            groups=[self.group],
+            action="assign_role",
+        )
+
+        event = AccessChangeLog.objects.get(affected_user=self.user)
+        self.assertEqual(event.actor, self.admin)
+        self.assertEqual(event.action, "assign_role")
+        self.assertEqual(event.previous_values["groups"], [])
+        self.assertEqual(event.new_values["groups"], ["Human Resources"])
+
+    def test_employee_role_sync_does_not_replace_group_permissions(self):
+        permission = Permission.objects.get(
+            content_type__app_label="webroaster",
+            codename="approve_advance",
+        )
+        self.group.permissions.add(permission)
+
+        sync_role_group_permissions(self.group)
+
+        self.assertTrue(self.group.permissions.filter(pk=permission.pk).exists())
+
+    def test_migration_seeds_advance_permissions_on_initial_role_groups(self):
+        assignments = (
+            ("Operations Manager", "verify_advance"),
+            ("Human Resources", "approve_advance"),
+            ("Finance Officer", "pay_advance"),
+        )
+        for group_name, codename in assignments:
+            with self.subTest(group=group_name, permission=codename):
+                group = Group.objects.get(name=group_name)
+                self.assertTrue(group.permissions.filter(codename=codename).exists())
+
+    def test_group_permission_change_is_audited(self):
+        permission = Permission.objects.get(
+            content_type__app_label="webroaster",
+            codename="approve_advance",
+        )
+        self.group.permissions.clear()
+
+        change_group_permissions(self.admin, self.group, [permission])
+
+        event = AccessChangeLog.objects.get(affected_group=self.group)
+        self.assertEqual(event.actor, self.admin)
+        self.assertEqual(event.action, "update_group_permissions")
+        self.assertIn(["webroaster", "approve_advance"], event.new_values["permissions"])
+
+    def test_staff_access_report_is_available_to_administrators(self):
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("admin:auth_user_access_report"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "User access report")
+        self.assertContains(response, "access-staff")
+
+    def test_group_admin_lists_active_members_and_permissions(self):
+        self.user.groups.add(self.group)
+        self.client.force_login(self.admin)
+
+        response = self.client.get(reverse("admin:auth_group_changelist"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Human Resources")
+        self.assertContains(response, "access-staff")
+        self.assertContains(response, "Finance")
+
+    def test_user_admin_search_matches_linked_employee_number(self):
+        employee = Employee.objects.create(
+            first_name="Access",
+            last_name="Staff",
+            date_of_birth=date(1990, 1, 1),
+            gender="M",
+            phone_number="0700000097",
+            email=self.user.email,
+            address="Kampala",
+            national_id="NAT-ACCESS-SEARCH",
+            role="guard",
+            position="security_guard",
+            department="operations",
+            hire_date=date(2020, 1, 1),
+            status="active",
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse("admin:auth_user_changelist"),
+            {"q": employee.employee_number},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.user.username)
 
 
 class EmployeeConfigTests(SimpleTestCase):
@@ -270,8 +395,8 @@ class WorkflowNotificationAuthorizationTests(TestCase):
 
     def test_advance_notification_action_requires_assigned_authorized_employee(self):
         requester = self.create_employee("AdvanceRequester", "advance-requester@example.com")
-        assigned_supervisor = self.create_employee("AdvanceAssigned", "advance-assigned@example.com", role="supervisor")
-        other_supervisor = self.create_employee("AdvanceOther", "advance-other@example.com", role="supervisor")
+        assigned_supervisor = self.create_employee("AdvanceAssigned", "advance-assigned@example.com", role="manager")
+        other_supervisor = self.create_employee("AdvanceOther", "advance-other@example.com", role="hr_officer", department="hr")
         advance = Advance.objects.create(employee=requester, amount_requested=Decimal("100000.00"))
         notification = advance.notify(
             assigned_supervisor,
@@ -280,7 +405,7 @@ class WorkflowNotificationAuthorizationTests(TestCase):
             "Verify this salary advance.",
         )
 
-        self.client.force_login(self.create_staff_user("advance-other", other_supervisor.email, "Supervisor"))
+        self.client.force_login(self.create_staff_user("advance-other", other_supervisor.email, "Human Resources"))
         response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "verify"]))
         advance.refresh_from_db()
         notification.refresh_from_db()
@@ -289,7 +414,7 @@ class WorkflowNotificationAuthorizationTests(TestCase):
         self.assertEqual(advance.verification_status, "pending")
         self.assertEqual(notification.status, "pending")
 
-        self.client.force_login(self.create_staff_user("advance-assigned", assigned_supervisor.email, "Supervisor"))
+        self.client.force_login(self.create_staff_user("advance-assigned", assigned_supervisor.email, "Operations Manager"))
         response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "verify"]))
         advance.refresh_from_db()
         notification.refresh_from_db()
@@ -3282,29 +3407,118 @@ class AdvanceWorkflowTests(TestCase):
 
         notification = AdvanceNotification.objects.get(advance=advance, recipient=hr_officer)
         self.assertEqual(notification.notification_type, "approval_requested")
-        self.assertTrue(notification.can_approve)
+        self.assertFalse(notification.can_approve)
+        self.assertEqual(advance.verification_status, "pending")
 
-    def test_hr_approval_updates_status_notifies_finance_and_refreshes_payroll(self):
-        employee = self.make_employee("AdvanceApproved", "administrator", "admin")
+    def create_role_user(self, employee, group_name, permission_codename):
+        user = get_user_model().objects.create_user(
+            username=employee.employee_number,
+            email=employee.email,
+            password="test-pass",
+            is_staff=True,
+        )
+        group, _created = Group.objects.get_or_create(name=group_name)
+        permission = Permission.objects.get(
+            content_type__app_label="webroaster",
+            codename=permission_codename,
+        )
+        group.permissions.add(permission)
+        user.groups.add(group)
+        return user
+
+    def test_salary_advance_workflow_enforces_roles_and_survives_missing_hr_notification(self):
+        employee = self.make_employee("AdvanceRequester", "guard", "operations")
+        operations_employee = self.make_employee("AdvanceOperations", "manager", "operations")
         hr_officer = self.make_employee("AdvanceApprover", "hr_officer", "hr")
         finance_officer = self.make_employee("AdvanceFinance", "finance_officer", "finance")
-        salary = Salary.objects.create(employee=employee, basic_salary=Decimal("900000.00"))
+        operations_user = self.create_role_user(
+            operations_employee,
+            "Operations Manager",
+            "verify_advance",
+        )
+        hr_user = self.create_role_user(hr_officer, "Human Resources", "approve_advance")
+        finance_user = self.create_role_user(finance_officer, "Finance Officer", "pay_advance")
         advance = Advance.objects.create(employee=employee, amount_requested=Decimal("120000.00"))
         advance.notify_submission()
-        notification = AdvanceNotification.objects.get(advance=advance, recipient=hr_officer)
-        login_test_staff(self.client, "advance-approval")
 
-        response = self.client.post(reverse("webroaster:advance_notification_action", args=[notification.pk, "approve"]))
+        self.client.force_login(hr_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "verify"])
+        )
+        advance.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(advance.verification_status, "pending")
+
+        self.client.force_login(operations_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "verify"])
+        )
+        advance.refresh_from_db()
+        self.assertEqual(advance.verification_status, "verified")
+
+        AdvanceNotification.objects.filter(
+            advance=advance,
+            recipient_group__in=("HR Officer", "HR Approver"),
+        ).delete()
+        self.client.force_login(hr_user)
+        response = self.client.get(reverse("webroaster:advance_notifications"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "AdvanceRequester")
+        self.assertContains(response, "Approve")
+
+        self.client.force_login(finance_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "approve"])
+        )
+        advance.refresh_from_db()
+        self.assertEqual(advance.approval_status, "pending")
+
+        self.client.force_login(hr_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "approve"])
+        )
+        advance.refresh_from_db()
+        self.assertEqual(advance.approval_status, "approved")
+        self.assertEqual(advance.status, "pending")
+
+        self.client.force_login(operations_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "pay"])
+        )
+        advance.refresh_from_db()
+        self.assertEqual(advance.status, "pending")
+
+        self.client.force_login(finance_user)
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "pay"])
+        )
 
         self.assertEqual(response.status_code, 302)
         advance.refresh_from_db()
-        salary.refresh_from_db()
         self.assertEqual(advance.approval_status, "approved")
         self.assertEqual(advance.status, "disbursed")
         self.assertEqual(advance.approved_by, hr_officer)
         self.assertTrue(AdvanceNotification.objects.filter(advance=advance, recipient=finance_officer, notification_type="finance_update").exists())
         self.assertTrue(AdvanceNotification.objects.filter(advance=advance, recipient=employee, notification_type="advance_approved").exists())
-        self.assertGreater(salary.advance_recovery, Decimal("0.00"))
+
+    def test_hr_user_cannot_approve_their_own_advance(self):
+        requester = self.make_employee("HRRequester", "hr_officer", "hr")
+        hr_user = self.create_role_user(requester, "Human Resources", "approve_advance")
+        advance = Advance.objects.create(
+            employee=requester,
+            amount_requested=Decimal("80000.00"),
+            verification_status="verified",
+        )
+        self.client.force_login(hr_user)
+
+        response = self.client.post(
+            reverse("webroaster:advance_workflow_action", args=[advance.pk, "approve"])
+        )
+
+        advance.refresh_from_db()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(advance.approval_status, "pending")
+        self.assertIsNone(advance.approved_by)
 
 
 class PayrollProcessingTests(TestCase):
@@ -4198,7 +4412,11 @@ class PasswordManagementTests(TestCase):
         self.assertContains(response, "Password Management")
         self.assertContains(response, "staff-user")
 
-    def test_superuser_can_activate_and_reset_password(self):
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.example.test",
+    )
+    def test_superuser_can_activate_and_send_password_reset_link(self):
         self.client.force_login(self.admin)
 
         activate_response = self.client.post(
@@ -4219,7 +4437,148 @@ class PasswordManagementTests(TestCase):
         )
         self.assertRedirects(reset_response, reverse("webroaster:password_management"))
         self.staff_user.refresh_from_db()
-        self.assertTrue(self.staff_user.check_password("New-Password-2026!"))
+        self.assertFalse(self.staff_user.check_password("New-Password-2026!"))
+        self.assertEqual(len(mail.outbox), 1)
+        link = next(
+            line for line in mail.outbox[0].body.splitlines() if line.startswith("http")
+        )
+        token = link.rstrip("/").split("/")[-1]
+        self.assertEqual(self.client.get(link).status_code, 200)
+        response = self.client.post(
+            link,
+            {
+                "new_password1": "S3cure-New-Password-2026!",
+                "new_password2": "S3cure-New-Password-2026!",
+            },
+        )
+        self.assertRedirects(response, reverse("webroaster:login"))
+        self.staff_user.refresh_from_db()
+        self.assertTrue(self.staff_user.check_password("S3cure-New-Password-2026!"))
+        self.assertTrue(
+            AuditLog.objects.filter(path="/staff/set-password/[redacted]/").exists()
+        )
+        self.assertFalse(AuditLog.objects.filter(path__contains=token).exists())
+
+    @override_settings(
+        EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend",
+        EMAIL_HOST="smtp.example.test",
+    )
+    def test_inviting_employee_uses_one_time_password_setup_link(self):
+        employee = Employee.objects.create(
+            first_name="Invited",
+            last_name="Employee",
+            date_of_birth=date(1990, 1, 1),
+            gender="F",
+            phone_number="0700000098",
+            email="invite.employee@example.com",
+            address="Kampala",
+            national_id="NAT-INVITE-001",
+            role="finance_officer",
+            position="finance_officer",
+            department="finance",
+            hire_date=date(2020, 1, 1),
+            status="active",
+        )
+        group = Group.objects.get(name="Finance Officer")
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse("webroaster:password_management"),
+            {
+                "action": "create_user",
+                "employee": employee.pk,
+                "groups": group.pk,
+                "permissions": [],
+            },
+        )
+
+        self.assertRedirects(response, reverse("webroaster:password_management"))
+        user = get_user_model().objects.get(username=employee.employee_number)
+        self.assertTrue(user.is_staff)
+        self.assertTrue(user.is_active)
+        self.assertFalse(user.is_superuser)
+        self.assertFalse(user.has_usable_password())
+        self.assertTrue(user.groups.filter(pk=group.pk).exists())
+        self.assertTrue(
+            AccessChangeLog.objects.filter(
+                action="invite_user",
+                actor=self.admin,
+                affected_user=user,
+            ).exists()
+        )
+        link = next(line for line in mail.outbox[0].body.splitlines() if line.startswith("http"))
+        response = self.client.post(
+            link,
+            {
+                "new_password1": "S3cure-Invite-Password-2026!",
+                "new_password2": "S3cure-Invite-Password-2026!",
+            },
+        )
+        self.assertRedirects(response, reverse("webroaster:login"))
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("S3cure-Invite-Password-2026!"))
+
+    @override_settings(EMAIL_HOST="")
+    def test_password_link_rejects_missing_smtp_configuration(self):
+        request = RequestFactory().get("/")
+
+        with self.assertRaises(AccountEmailDeliveryError):
+            send_account_password_link(request, self.staff_user)
+
+    @override_settings(EMAIL_HOST="")
+    def test_forgot_password_stays_generic_when_email_is_not_configured(self):
+        self.staff_user.is_active = True
+        self.staff_user.save(update_fields=["is_active"])
+
+        response = self.client.post(
+            reverse("webroaster:forgot_password"),
+            {
+                "username": self.staff_user.username,
+                "email": self.staff_user.email,
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("webroaster:forgot_password"))
+        self.assertContains(response, "Delivery is not confirmed")
+        self.assertNotContains(response, self.staff_user.email)
+
+    @override_settings(EMAIL_HOST="smtp.example.test")
+    @patch("webroaster.accounts.send_mail", side_effect=ConnectionRefusedError)
+    def test_invitation_smtp_failure_is_reported_without_losing_created_account(self, _send_mail):
+        employee = Employee.objects.create(
+            first_name="Mail",
+            last_name="Failure",
+            date_of_birth=date(1990, 1, 1),
+            gender="F",
+            phone_number="0700000096",
+            email="invite.mail.failure@example.com",
+            address="Kampala",
+            national_id="NAT-INVITE-MAIL-FAIL",
+            role="finance_officer",
+            position="finance_officer",
+            department="finance",
+            hire_date=date(2020, 1, 1),
+            status="active",
+        )
+        group = Group.objects.get(name="Finance Officer")
+        self.client.force_login(self.admin)
+
+        response = self.client.post(
+            reverse("webroaster:password_management"),
+            {
+                "action": "create_user",
+                "employee": employee.pk,
+                "groups": group.pk,
+                "permissions": [],
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("webroaster:password_management"))
+        user = get_user_model().objects.get(username=employee.employee_number)
+        self.assertFalse(user.has_usable_password())
+        self.assertContains(response, "could not be emailed")
 
     def test_bulk_deactivates_users_linked_to_terminated_staff(self):
         self.staff_user.is_active = True
@@ -4249,6 +4608,12 @@ class PasswordManagementTests(TestCase):
         self.assertRedirects(response, reverse("webroaster:password_management"))
         self.staff_user.refresh_from_db()
         self.assertFalse(self.staff_user.is_active)
+        self.assertTrue(
+            AccessChangeLog.objects.filter(
+                action="deactivate_terminated_employee",
+                affected_user=self.staff_user,
+            ).exists()
+        )
 
     def test_separated_employee_save_deactivates_linked_user(self):
         self.staff_user.is_active = True
@@ -4269,13 +4634,13 @@ class PasswordManagementTests(TestCase):
             status="active",
         )
 
-        employee.status = "resigned"
+        employee.status = "terminated"
         employee.save(update_fields=["status"])
 
         self.staff_user.refresh_from_db()
         self.assertFalse(self.staff_user.is_active)
 
-    def test_active_employee_save_creates_grouped_user_with_default_password(self):
+    def test_active_employee_save_does_not_provision_a_user(self):
         employee = Employee.objects.create(
             first_name="Finance",
             last_name="Access",
@@ -4292,12 +4657,44 @@ class PasswordManagementTests(TestCase):
             status="active",
         )
 
-        user = get_user_model().objects.get(username=employee.employee_number)
+        self.assertFalse(
+            get_user_model().objects.filter(username=employee.employee_number).exists()
+        )
+
+    def test_employee_profile_save_preserves_linked_user_access(self):
+        employee = Employee.objects.create(
+            first_name="Human",
+            last_name="Resources",
+            date_of_birth=date(1990, 1, 1),
+            gender="F",
+            phone_number="0700000099",
+            email="hr.persist@example.com",
+            address="Kampala",
+            national_id="NAT-HR-PERSIST",
+            role="hr_officer",
+            position="hr_officer",
+            department="hr",
+            hire_date=date(2020, 1, 1),
+            status="active",
+        )
+        user = get_user_model().objects.create_user(
+            username=employee.employee_number,
+            email=employee.email,
+            password="Original-Password-2026!",
+            is_staff=True,
+        )
+        group, _created = Group.objects.get_or_create(name="Human Resources")
+        user.groups.add(group)
+
+        employee.last_name = "Updated"
+        employee.save(update_fields=["last_name"])
+        user.refresh_from_db()
+
+        self.assertEqual(user.last_name, "Updated")
         self.assertTrue(user.is_active)
-        self.assertTrue(user.is_staff)
-        self.assertEqual(user.email, employee.email)
-        self.assertTrue(user.check_password("ChangeMe123!"))
-        self.assertTrue(user.groups.filter(name="Finance Officer").exists())
+        self.assertFalse(user.is_superuser)
+        self.assertTrue(user.groups.filter(name="Human Resources").exists())
+        self.assertTrue(user.check_password("Original-Password-2026!"))
 
     def test_guard_employee_does_not_receive_unrestricted_staff_login(self):
         employee = Employee.objects.create(

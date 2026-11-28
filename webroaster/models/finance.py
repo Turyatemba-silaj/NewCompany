@@ -229,7 +229,7 @@ class Salary(models.Model):
     def payable_advances(self):
         if not self.employee_id:
             return Advance.objects.none()
-        return self.employee.advances.exclude(approval_status="rejected").filter(approval_status="approved").exclude(status="recovered")
+        return self.employee.advances.exclude(approval_status="rejected").filter(approval_status="approved", status="disbursed", disbursement_date__isnull=False)
 
     @property
     def advance_installment_amount(self):
@@ -376,7 +376,9 @@ class Salary(models.Model):
         remaining_recovery = self.advance_recovery_limit
         recovered_now = Decimal("0.00")
 
-        advances = self.employee.advances.exclude(approval_status="rejected").filter(approval_status="approved").exclude(status="recovered").order_by("disbursement_date", "created_at")
+        advances = self.employee.advances.filter(
+            approval_status="approved", status="disbursed", disbursement_date__lte=end_date,
+        ).order_by("disbursement_date", "created_at")
         for advance in advances:
             if remaining_recovery <= 0:
                 break
@@ -527,6 +529,18 @@ class PayrollRun(models.Model):
 class Advance(models.Model):
     """Manages salary advances"""
     advance_id = models.AutoField(primary_key=True)
+    routing_path = models.CharField(max_length=12, blank=True, default="", editable=False)
+    payment_authorized_by = models.ForeignKey(
+        Employee, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="authorized_advance_payments", editable=False,
+    )
+    payment_authorized_at = models.DateTimeField(null=True, blank=True, editable=False)
+    decision_at = models.DateTimeField(null=True, blank=True, editable=False)
+    paid_by = models.ForeignKey(
+        Employee, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="recorded_advance_payments", editable=False,
+    )
+    paid_at = models.DateTimeField(null=True, blank=True, editable=False)
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='advances')
     amount_requested = models.DecimalField(max_digits=10, decimal_places=2)
     installment_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, editable=False, validators=[MinValueValidator(0)])
@@ -596,29 +610,8 @@ class Advance(models.Model):
         return notification
 
     def notify_submission(self):
-        if self.approval_status != "pending" or not self.pk:
-            return
-        message = f"{self.employee} requested a salary advance of UGX {self.amount_requested:,.2f}."
-        supervisors = Employee.objects.filter(status="active").filter(
-            models.Q(role="supervisor") | models.Q(role="manager")
-        ).distinct()
-        supervisor_count = supervisors.count()
-        for employee in supervisors:
-            self.notify(employee, "Supervisor", "verification_requested", message)
-        if supervisor_count == 0 and self.verification_status == "pending":
-            self.verification_status = "verified"
-            self.verified_at = timezone.now()
-            type(self).objects.filter(pk=self.pk).update(
-                verification_status=self.verification_status,
-                verified_at=self.verified_at,
-            )
-        hr_staff = Employee.objects.filter(status="active").filter(
-            models.Q(role="hr_officer") | models.Q(department="hr")
-        ).distinct()
-        recipient_group = "HR Approver" if supervisor_count == 0 else "HR Officer"
-        notification_type = "approval_requested" if supervisor_count == 0 else "request_received"
-        for employee in hr_staff:
-            self.notify(employee, recipient_group, notification_type, message)
+        from webroaster.advance_routing import notify_next_stage
+        notify_next_stage(self)
 
     def refresh_payroll(self):
         salary = getattr(self.employee, "salary", None)
@@ -627,14 +620,7 @@ class Advance(models.Model):
         return salary
 
     def notify_hr_for_approval(self):
-        if self.verification_status != "verified" or self.approval_status != "pending":
-            return
-        message = f"Supervisor verification is complete for {self.employee}'s salary advance of UGX {self.amount_requested:,.2f}."
-        hr_staff = Employee.objects.filter(status="active").filter(
-            models.Q(role="hr_officer") | models.Q(department="hr")
-        ).distinct()
-        for employee in hr_staff:
-            self.notify(employee, "HR Approver", "approval_requested", message)
+        self.notify_submission()
 
     def __str__(self):
         return f"Advance - {self.employee} ({self.amount_requested})"
@@ -655,6 +641,11 @@ class Advance(models.Model):
 
     class Meta:
         db_table = 'advances'
+        permissions = [
+            ("verify_advance", "Can verify salary advance"),
+            ("approve_advance", "Can approve or reject salary advance"),
+            ("pay_advance", "Can record salary advance payment"),
+        ]
 
 
 class AdvanceNotification(models.Model):
@@ -686,15 +677,15 @@ class AdvanceNotification(models.Model):
 
     @property
     def can_approve(self):
-        return self.recipient_group == "HR Approver" and self.advance.verification_status == "verified" and self.advance.approval_status == "pending"
+        return self.recipient_group in ("HR Officer", "HR Approver") and self.advance.verification_status == "verified" and self.advance.approval_status == "pending" and self.advance.status == "pending"
 
     @property
     def can_reject(self):
-        return self.recipient_group == "HR Approver" and self.advance.verification_status == "verified" and self.advance.approval_status == "pending"
+        return self.can_approve
 
     @property
     def can_verify(self):
-        return self.recipient_group == "Supervisor" and self.advance.verification_status == "pending"
+        return self.recipient_group == "Supervisor" and self.advance.verification_status == "pending" and self.advance.approval_status == "pending" and self.advance.status == "pending"
 
     @property
     def can_pay(self):

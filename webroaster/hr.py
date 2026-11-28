@@ -13,7 +13,14 @@ from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 
-from .access import advance_notification_groups, employee_for_user, leave_notification_groups, notification_actor_for_user, require_model_access, require_view_access
+from .access import (
+    employee_for_user,
+    leave_notification_groups,
+    notification_actor_for_user,
+    require_model_access,
+    require_view_access,
+)
+from .advance_routing import advance_notifications, advance_notification_action, advance_workflow_action
 from .finance import sync_salary_table
 from .forms_hr import EmployeeDeploymentTransferForm, LeaveReviewForm
 from .models import AdvanceNotification, DisciplinaryNotification, Document, Employee, Guard, JobApplication, Leave, LeaveNotification, Salary, Training
@@ -439,6 +446,33 @@ def leave_notification_action(request, notification_id, action):
         messages.error(request, "Only the assigned authorized person can act on this leave notification.")
         return redirect("webroaster:leave_notifications")
 
+    if request.method == "GET":
+        employee = employee_for_user(request.user)
+        if not employee or employee.status != "active" or employee.pk != notification.recipient_id:
+            raise Http404
+        allowed = {
+            "verify": notification.can_verify,
+            "approve": notification.can_approve,
+            "reject": notification.can_reject,
+        }
+        if not allowed.get(action):
+            raise Http404
+        return render_page(request, "webroaster/request_decision.html", {
+            "title": f"{action.title()} Leave Request",
+            "decision": action.title(),
+            "employee": leave.employee,
+            "request_details": (
+                ("Leave type", leave.get_leave_type_display()),
+                ("Start date", leave.start_date),
+                ("End date", leave.end_date),
+                ("Reason", leave.reason),
+                ("Verification", leave.get_operations_verification_status_display()),
+                ("Verified by", leave.verified_by),
+                ("Verified at (EAT)", leave.operations_verified_at),
+                ("Approval", leave.get_approval_status_display()),
+            ),
+            "inbox": "webroaster:leave_notifications",
+        }, "leaves")
     if request.method != "POST":
         return redirect("webroaster:leave_notifications")
 
@@ -494,110 +528,6 @@ def leave_notification_action(request, notification_id, action):
     notification.decided_at = now
     notification.save(update_fields=["status", "decision", "decided_at", "updated_at"])
     return redirect("webroaster:leave_notifications")
-
-
-def advance_notifications(request):
-    require_view_access(request, "advance_notifications")
-    notifications = AdvanceNotification.objects.select_related(
-        "advance", "advance__employee", "recipient"
-    ).order_by("-notified_at", "-notification_id")
-    notification_groups = advance_notification_groups(request.user)
-    if notification_groups is not None:
-        notifications = notifications.filter(recipient_group__in=notification_groups)
-    actor = employee_for_user(request.user)
-    if actor and not request.user.is_superuser:
-        notifications = notifications.filter(recipient=actor)
-    return render_page(request, "webroaster/advance_notifications.html", {
-        "title": "Salary Advance Notifications",
-        "notifications": notifications,
-    }, "advances")
-
-
-def advance_notification_action(request, notification_id, action):
-    require_view_access(request, "advance_notification_action")
-    notification = get_object_or_404(
-        AdvanceNotification.objects.select_related("advance", "advance__employee", "recipient"),
-        pk=notification_id,
-    )
-    notification_groups = advance_notification_groups(request.user)
-    if notification_groups is not None and notification.recipient_group not in notification_groups:
-        messages.error(request, "You cannot act on this advance notification.")
-        return redirect("webroaster:advance_notifications")
-    actor = notification_actor_for_user(request.user, notification)
-    if actor is None:
-        messages.error(request, "Only the assigned authorized person can act on this advance notification.")
-        return redirect("webroaster:advance_notifications")
-    if request.method != "POST":
-        return redirect("webroaster:advance_notifications")
-    allowed_action = (
-        action == "verify" and notification.can_verify
-    ) or (
-        action in ("approve", "reject") and notification.can_approve
-    ) or (
-        action == "pay" and notification.can_pay
-    )
-    if not allowed_action:
-        messages.error(request, "This salary advance cannot be changed from this notification.")
-        return redirect("webroaster:advance_notifications")
-
-    advance = notification.advance
-    now = timezone.now()
-    with transaction.atomic():
-        if action == "verify":
-            advance.verification_status = "verified"
-            advance.verified_by = actor
-            advance.verified_at = now
-            advance.save(update_fields=["verification_status", "verified_by", "verified_at", "updated_at"])
-            advance.notify_hr_for_approval()
-            notification_type = "advance_verified"
-            outcome = "verified"
-        elif action == "approve":
-            advance.approval_status = "approved"
-            advance.status = "disbursed"
-            advance.disbursement_date = advance.disbursement_date or timezone.localdate()
-            advance.approved_by = actor
-            advance.save(update_fields=["approval_status", "status", "disbursement_date", "approved_by", "updated_at"])
-            advance.refresh_payroll()
-            notification_type = "advance_approved"
-            outcome = "approved"
-            finance_message = f"Salary advance for {advance.employee} was approved by HR and disbursed."
-            finance_staff = Employee.objects.filter(status="active").filter(
-                Q(role__in=("finance_officer", "administrator", "manager")) | Q(department="finance")
-            ).distinct()
-            for employee in finance_staff:
-                advance.notify(employee, "Finance", "finance_update", finance_message)
-            advance.notify(advance.employee, "Requester", notification_type, f"Your salary advance request of UGX {advance.amount_requested:,.2f} was approved.")
-        elif action == "reject":
-            advance.approval_status = "rejected"
-            advance.status = "rejected"
-            advance.approved_by = actor
-            advance.save(update_fields=["approval_status", "status", "approved_by", "updated_at"])
-            notification_type = "advance_rejected"
-            outcome = "rejected"
-            advance.refresh_payroll()
-            advance.notify(advance.employee, "Requester", notification_type, f"Your salary advance request of UGX {advance.amount_requested:,.2f} was rejected.")
-        else:
-            advance.status = "disbursed"
-            advance.disbursement_date = advance.disbursement_date or timezone.localdate()
-            advance.save(update_fields=["status", "disbursement_date", "updated_at"])
-            advance.refresh_payroll()
-            advance.notify(advance.employee, "Requester", "advance_paid", f"Your salary advance of UGX {advance.amount_requested:,.2f} has been paid by Finance.")
-            notification_type = "advance_paid"
-            outcome = "paid"
-        notification.status = "actioned"
-        notification.decision = action
-        notification.decided_at = now
-        notification.save(update_fields=["status", "decision", "decided_at", "updated_at"])
-
-    if action == "verify":
-        messages.success(request, "Salary advance verified and sent to Human Resource for approval.")
-    elif action == "approve":
-        messages.success(request, "Salary advance approved and sent to Finance for payment.")
-    elif action == "pay":
-        messages.success(request, "Salary advance paid and payroll was updated.")
-    else:
-        messages.success(request, "Salary advance rejected and payroll was updated.")
-    return redirect("webroaster:advance_notifications")
 
 
 def disciplinary_action_has_feedback(action):

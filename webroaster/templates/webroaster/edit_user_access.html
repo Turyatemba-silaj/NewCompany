@@ -1,0 +1,35 @@
+{% extends "webroaster/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="topbar">
+    <h1>{{ title }}</h1>
+    <a class="btn" href="{% url 'webroaster:password_management' %}">Back to Access Control</a>
+</div>
+<p><strong>{{ target.get_username }}</strong>{% if target.email %} · {{ target.email }}{% endif %}</p>
+<form method="post" class="panel">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <fieldset>
+        <legend>Role groups</legend>
+        {{ form.groups.errors }}
+        {{ form.groups }}
+    </fieldset>
+    <fieldset>
+        <legend>Individual permissions</legend>
+        <p>Tick to add a direct grant. Untick to remove it.</p>
+        {{ form.permissions.errors }}
+        <div style="max-height: 20rem; overflow: auto;">{{ form.permissions }}</div>
+    </fieldset>
+    <details>
+        <summary>Permissions inherited from current roles</summary>
+        <ul>
+            {% for permission in inherited %}
+            <li>{{ permission.content_type.app_label }}.{{ permission.content_type.model }} — {{ permission.name }}</li>
+            {% empty %}
+            <li>No inherited permissions.</li>
+            {% endfor %}
+        </ul>
+    </details>
+    <button type="submit" class="btn primary">Save access</button>
+</form>
+{% endblock %}

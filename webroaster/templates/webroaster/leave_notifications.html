@@ -51,22 +51,13 @@
                         <td>
                             <div class="row-action-group">
                                 {% if notification.can_verify %}
-                                    <form method="post" action="{% url 'webroaster:leave_notification_action' notification.pk 'verify' %}">
-                                        {% csrf_token %}
-                                        <button class="action-btn workflow" type="submit">Verify</button>
-                                    </form>
+                                    <a class="action-btn workflow" href="{% url 'webroaster:leave_notification_action' notification.pk 'verify' %}">Verify</a>
                                 {% endif %}
                                 {% if notification.can_approve %}
-                                    <form method="post" action="{% url 'webroaster:leave_notification_action' notification.pk 'approve' %}">
-                                        {% csrf_token %}
-                                        <button class="action-btn workflow" type="submit">Approve</button>
-                                    </form>
+                                    <a class="action-btn workflow" href="{% url 'webroaster:leave_notification_action' notification.pk 'approve' %}">Approve</a>
                                 {% endif %}
                                 {% if notification.can_reject %}
-                                    <form method="post" action="{% url 'webroaster:leave_notification_action' notification.pk 'reject' %}">
-                                        {% csrf_token %}
-                                        <button class="action-btn danger" type="submit">Reject</button>
-                                    </form>
+                                    <a class="action-btn danger" href="{% url 'webroaster:leave_notification_action' notification.pk 'reject' %}">Reject</a>
                                 {% endif %}
                                 {% if not notification.can_verify and not notification.can_approve and not notification.can_reject %}
                                     {{ notification.decision|default:"-" }}

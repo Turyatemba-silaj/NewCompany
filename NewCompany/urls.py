@@ -1,4 +1,6 @@
+
 """
+
 URL configuration for NewCompany project.
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -20,8 +22,9 @@ from django.conf.urls.static import static
 from django.urls import include, path
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('', include('webroaster.urls')),
+    path("admin/", admin.site.urls),
+    path("banking/", include("banking.urls")),
+    path("", include("webroaster.urls")),
 ]
 
 if settings.DEBUG or settings.IS_VERCEL_RUNTIME:

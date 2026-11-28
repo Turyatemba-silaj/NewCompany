@@ -1,0 +1,10 @@
+Hello {{ user.get_full_name|default:user.username }},
+
+{% if invitation %}A NewCompany staff account has been created for you.{% else %}A password reset was requested for your NewCompany staff account.{% endif %}
+
+Set your password using this secure link:
+{{ link }}
+
+If you did not expect this message, contact your system administrator.
+
+NewCompany

@@ -64,13 +64,25 @@ class PayrollRunForm(StyledModelForm):
 class AdvanceForm(StyledModelForm):
     class Meta:
         model = Advance
-        exclude = ("installment_amount", "approval_status", "approved_by", "verification_status", "verified_by", "verified_at", "status")
+        exclude = (
+            "installment_amount",
+            "approval_status",
+            "approved_by",
+            "verification_status",
+            "verified_by",
+            "verified_at",
+            "status",
+        )
         widgets = {"disbursement_date": DATE_WIDGET}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if "disbursement_date" in self.fields:
             self.fields["disbursement_date"].disabled = True
+        if self.instance.pk:
+            self.fields["employee"].disabled = True
+            if self.instance.verification_status != "pending" or self.instance.status != "pending":
+                self.fields["amount_requested"].disabled = True
 
 
 class ExpenseForm(StyledModelForm):

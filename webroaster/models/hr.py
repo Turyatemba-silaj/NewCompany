@@ -22,6 +22,7 @@ class Role(models.Model):
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     department = models.CharField(max_length=50, choices=DEPARTMENT_CHOICES)
     description = models.TextField(blank=True, null=True)
@@ -45,6 +46,7 @@ class Position(models.Model):
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     department = models.CharField(max_length=50, choices=DEPARTMENT_CHOICES)
     grade_level = models.CharField(max_length=50)
@@ -64,6 +66,12 @@ class Position(models.Model):
 class Employee(models.Model):
     """Manages all employees"""
     employee_id = models.AutoField(primary_key=True)
+    advance_supervisor = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="advance_reports",
+    )
+    is_department_head = models.BooleanField(default=False, verbose_name="Department head")
+    is_reliever = models.BooleanField(default=False, verbose_name="Reliever")
     employee_number = models.CharField("Employee Number", max_length=20, unique=True, blank=True, editable=False)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -89,6 +97,8 @@ class Employee(models.Model):
         ('hr_officer', 'HR Officer'),
         ('finance_officer', 'Finance Officer'),
         ('administrator', 'Administrator'),
+        ('general_manager', 'General Manager'),
+        ('head_of_finance', 'Head of Finance'),
     ]
     POSITION_CHOICES = [
         ('security_guard', 'Security Guard'),
@@ -98,12 +108,15 @@ class Employee(models.Model):
         ('hr_officer', 'HR Officer'),
         ('finance_officer', 'Finance Officer'),
         ('administrator', 'Administrator'),
+        ('general_manager', 'General Manager'),
+        ('head_of_finance', 'Head of Finance'),
     ]
     DEPARTMENT_CHOICES = [
         ('operations', 'Operations'),
         ('hr', 'Human Resources'),
         ('finance', 'Finance'),
         ('admin', 'Administration'),
+        ('management', 'Management'),
     ]
     QUALIFICATION_CHOICES = [
         ('primary', 'Primary'),
@@ -129,8 +142,6 @@ class Employee(models.Model):
     department = models.CharField(max_length=50, choices=DEPARTMENT_CHOICES, default='operations')
     salary_scale = models.DecimalField("Daily Rate", max_digits=10, decimal_places=2, default=0, editable=False)
     qualification = models.CharField('Academic Qualification', max_length=50, choices=QUALIFICATION_CHOICES, blank=True, default='')
-    armed_status = models.CharField(max_length=20, choices=ARMED_STATUS_CHOICES, blank=True, default='')
-    authority_level = models.CharField(max_length=50, choices=AUTHORITY_LEVEL_CHOICES, blank=True, default='')
     hire_date = models.DateField()
     
     EMPLOYEE_STATUS_CHOICES = [
@@ -140,7 +151,6 @@ class Employee(models.Model):
         ('terminated', 'Terminated'),
     ]
     status = models.CharField(max_length=20, choices=EMPLOYEE_STATUS_CHOICES, default='active')
-    is_reliever = models.BooleanField('Reliever', default=False, help_text="Relievers may be assigned to more than one site.")
     PAYOUT_METHOD_CHOICES = [
         ('bank_transfer', 'Bank Transfer'),
         ('mobile_money', 'Mobile Money'),
@@ -273,6 +283,8 @@ class Employee(models.Model):
             "hr_officer": Decimal("30000.00"),
             "finance_officer": Decimal("30000.00"),
             "administrator": Decimal("30000.00"),
+            "general_manager": Decimal("30000.00"),
+            "head_of_finance": Decimal("30000.00"),
         }
         return fixed_staff_rates.get(self.role, Decimal("0.00"))
 
@@ -284,6 +296,8 @@ class Employee(models.Model):
             "hr_officer",
             "finance_officer",
             "administrator",
+            "general_manager",
+            "head_of_finance",
         }
 
     @property
@@ -302,10 +316,12 @@ class Employee(models.Model):
                 self.position = 'site_supervisor'
         elif self.role == 'hr_officer':
             self.department = 'hr'
-        elif self.role == 'finance_officer':
+        elif self.role in ('finance_officer', 'head_of_finance'):
             self.department = 'finance'
         elif self.role in ('manager', 'operations_officer'):
             self.department = 'operations'
+        elif self.role == 'general_manager':
+            self.department = 'management'
         elif self.role == 'administrator':
             self.department = 'admin'
 
@@ -355,53 +371,28 @@ class Employee(models.Model):
 def sync_employee_user_access(employee):
     from django.contrib.auth import get_user_model
 
-    from webroaster.access import DEFAULT_PASSWORD, sync_role_groups
+    from webroaster.access import deactivate_for_termination
 
-    role_groups = {
-        "supervisor": "Supervisor",
-        "manager": "Operations Manager",
-        "operations_officer": "Operations Manager",
-        "hr_officer": "Human Resources",
-        "finance_officer": "Finance Officer",
-        "administrator": "Head of Finance",
-    }
     username = (employee.employee_number or "").strip()
     email = (employee.email or "").strip()
     if not username:
         return
 
     User = get_user_model()
-    if employee.status != "active":
-        matched_users = User.objects.filter(
-            models.Q(username__iexact=username) | models.Q(email__iexact=email)
-        )
-        matched_users.update(is_active=False)
+    user_query = models.Q(username__iexact=username)
+    if email:
+        user_query |= models.Q(email__iexact=email)
+    users = User.objects.filter(user_query)
+    if employee.status == "terminated":
+        for user in users:
+            deactivate_for_termination(user)
         return
 
-    group_name = role_groups.get(employee.role)
-    if not group_name:
-        return
-
-    groups_by_name = {group.name: group for group in sync_role_groups()}
-    user, created = User.objects.get_or_create(
-        username=username,
-        defaults={
-            "first_name": employee.first_name,
-            "last_name": employee.last_name,
-            "email": email,
-        },
+    users.update(
+        first_name=employee.first_name,
+        last_name=employee.last_name,
+        email=email,
     )
-    user.first_name = employee.first_name
-    user.last_name = employee.last_name
-    user.email = email
-    user.is_staff = True
-    user.is_active = True
-    if group_name == "Head of Finance":
-        user.is_superuser = True
-    if created or not user.has_usable_password():
-        user.set_password(DEFAULT_PASSWORD)
-    user.save()
-    user.groups.set([groups_by_name[group_name]])
 
 
 

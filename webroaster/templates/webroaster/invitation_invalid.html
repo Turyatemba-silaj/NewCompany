@@ -1,0 +1,13 @@
+{% extends "webroaster/public_base.html" %}
+
+{% block title %}Invalid Password Link{% endblock %}
+
+{% block content %}
+<section class="section">
+    <article class="card" style="max-width: 520px; margin: 0 auto;">
+        <h1>Password link is invalid or expired</h1>
+        <p>Request a new password link or contact your system administrator.</p>
+        <a class="btn primary" href="{% url 'webroaster:forgot_password' %}">Request a new link</a>
+    </article>
+</section>
+{% endblock %}

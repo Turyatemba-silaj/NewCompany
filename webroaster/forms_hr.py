@@ -88,7 +88,7 @@ class EmployeeForm(StyledModelForm):
 
     class Meta:
         model = Employee
-        exclude = ("employee_number", "salary_scale", "armed_status", "authority_level")
+        exclude = ("employee_number", "salary_scale", "armed_status", "authority_level", "advance_supervisor", "is_department_head")
         widgets = {"date_of_birth": DATE_WIDGET, "hire_date": DATE_WIDGET}
 
     def __init__(self, *args, **kwargs):

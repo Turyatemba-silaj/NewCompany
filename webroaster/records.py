@@ -808,7 +808,6 @@ def model_update(request, model_name, pk):
             "submit_label": "Submit",
         }
         return render_page(request, "webroaster/leave_form.html", context, model_name)
-    previous_approval_status = getattr(obj, "approval_status", None)
     form = config["form"](request.POST or None, request.FILES or None, instance=obj, required_only=config.get("required_only", True))
     deliverable_formset = None
     invoice_item_formset = None
@@ -849,16 +848,6 @@ def model_update(request, model_name, pk):
         if form_is_valid and formset_is_valid and invoice_items_are_valid and proforma_items_are_valid:
             obj = form.save()
             show_save_warnings(request, obj)
-            if model_name == "advances":
-                if previous_approval_status == "pending" and obj.approval_status == "approved":
-                    obj.status = "disbursed"
-                    obj.disbursement_date = obj.disbursement_date or timezone.localdate()
-                    obj.save(update_fields=["status", "disbursement_date", "updated_at"])
-                    obj.refresh_payroll()
-                elif previous_approval_status == "pending" and obj.approval_status == "rejected":
-                    obj.status = "rejected"
-                    obj.save(update_fields=["status", "updated_at"])
-                    obj.refresh_payroll()
             if model_name == "disciplinary-actions":
                 notify_disciplinary_employee(obj)
             if deliverable_formset is not None:

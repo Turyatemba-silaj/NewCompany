@@ -11,6 +11,7 @@ app_name = "webroaster"
 staff_required = user_passes_test(lambda user: user.is_authenticated and user.is_staff, login_url="webroaster:login")
 
 urlpatterns = [
+    path("banking/", include("banking.urls")),
     path("", public.public_home, name="public_home"),
     path("site-images/<slug:image_name>.png", public.public_seed_image, name="public_seed_image"),
     path("system/health/", views.system_health, name="system_health"),
@@ -29,6 +30,7 @@ urlpatterns = [
     path("dashboard/", staff_required(views.home), name="home"),
     path("staff/password-management/", staff_required(accounts.password_management), name="password_management"),
     path("staff/password-management/<int:user_id>/", staff_required(accounts.password_management_action), name="password_management_action"),
+    path("staff/password-management/<int:user_id>/edit/", staff_required(accounts.edit_user_access), name="edit_user_access"),
     path("deployments/upload-roster/", staff_required(operations.duty_roster_upload), name="duty_roster_upload"),
     path("deployments/export-roster/", staff_required(operations.duty_roster_export), name="duty_roster_export"),
     path("deployments/supervisor-checklist/", staff_required(operations.supervisor_checklist), name="supervisor_checklist"),
@@ -85,5 +87,6 @@ urlpatterns = [
     path("<str:model_name>/<int:pk>/", staff_required(records.model_detail), name="detail"),
     path("<str:model_name>/<int:pk>/edit/", staff_required(records.model_update), name="update"),
     path("<str:model_name>/<int:pk>/delete/", staff_required(records.model_delete), name="delete"),
+    
 ]
 

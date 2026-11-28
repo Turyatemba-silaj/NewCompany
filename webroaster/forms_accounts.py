@@ -3,38 +3,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.password_validation import validate_password
 
-from .access import ROLE_GROUPS, role_group_permission_queryset, sync_role_group_permissions, sync_role_groups
+from .access import ROLE_GROUPS, provision_user, role_group_permission_queryset, sync_role_groups
 from .models import Employee
-
-
-class PasswordResetManagementForm(forms.Form):
-    new_password = forms.CharField(
-        label="New password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
-    )
-    confirm_password = forms.CharField(
-        label="Confirm password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
-    )
-
-    def __init__(self, *args, user=None, **kwargs):
-        self.user = user
-        super().__init__(*args, **kwargs)
-
-    def clean_new_password(self):
-        password = self.cleaned_data["new_password"]
-        validate_password(password, self.user)
-        return password
-
-    def clean(self):
-        cleaned_data = super().clean()
-        new_password = cleaned_data.get("new_password")
-        confirm_password = cleaned_data.get("confirm_password")
-        if new_password and confirm_password and new_password != confirm_password:
-            raise forms.ValidationError("The two password fields did not match.")
-        return cleaned_data
 
 
 class PasswordExpiredChangeForm(forms.Form):
@@ -77,36 +47,9 @@ class PasswordExpiredChangeForm(forms.Form):
         return cleaned_data
 
 
-class ForgotPasswordResetForm(forms.Form):
+class ForgotPasswordRequestForm(forms.Form):
     username = forms.CharField(label="Username", max_length=150)
     email = forms.EmailField(label="Account email")
-    new_password = forms.CharField(
-        label="New password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
-    )
-    confirm_password = forms.CharField(
-        label="Confirm password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
-    )
-
-    def __init__(self, *args, user=None, **kwargs):
-        self.user = user
-        super().__init__(*args, **kwargs)
-
-    def clean_new_password(self):
-        password = self.cleaned_data["new_password"]
-        validate_password(password, self.user)
-        return password
-
-    def clean(self):
-        cleaned_data = super().clean()
-        new_password = cleaned_data.get("new_password")
-        confirm_password = cleaned_data.get("confirm_password")
-        if new_password and confirm_password and new_password != confirm_password:
-            raise forms.ValidationError("The two password fields did not match.")
-        return cleaned_data
 
 
 class AdminUserCreationForm(forms.Form):
@@ -129,19 +72,6 @@ class AdminUserCreationForm(forms.Form):
         queryset=Permission.objects.none(),
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-control permission-select", "size": "5"}),
-    )
-    is_staff = forms.BooleanField(label="Staff login", required=False, initial=True)
-    is_superuser = forms.BooleanField(label="Administrator", required=False)
-    is_active = forms.BooleanField(label="Active account", required=False, initial=True)
-    temporary_password = forms.CharField(
-        label="Temporary password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
-    )
-    confirm_password = forms.CharField(
-        label="Confirm password",
-        min_length=8,
-        widget=forms.PasswordInput(attrs={"class": "form-control", "autocomplete": "new-password"}),
     )
 
     def __init__(self, *args, **kwargs):
@@ -184,44 +114,21 @@ class AdminUserCreationForm(forms.Form):
         if self.user_model.objects.filter(username__iexact=username).exists():
             raise forms.ValidationError("A system user already exists for this employee number.")
         email = (employee.email or "").strip()
+        if not email:
+            raise forms.ValidationError("The employee needs an email address before an account can be invited.")
         if email and self.user_model.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError("A system user already exists for this employee email.")
         return employee
 
-    def clean_temporary_password(self):
-        password = self.cleaned_data["temporary_password"]
-        validate_password(password)
-        return password
-
-    def clean(self):
-        cleaned_data = super().clean()
-        password = cleaned_data.get("temporary_password")
-        confirm = cleaned_data.get("confirm_password")
-        if password and confirm and password != confirm:
-            raise forms.ValidationError("The two password fields did not match.")
-        if cleaned_data.get("is_superuser"):
-            cleaned_data["is_staff"] = True
-        return cleaned_data
-
-    def save(self):
+    def save(self, actor):
         employee = self.cleaned_data["employee"]
-        user = self.user_model(
+        return provision_user(
+            actor,
             username=employee.employee_number.strip(),
             first_name=employee.first_name,
             last_name=employee.last_name,
-            email=employee.email,
-            is_staff=self.cleaned_data.get("is_staff", True),
-            is_superuser=self.cleaned_data.get("is_superuser", False),
-            is_active=self.cleaned_data.get("is_active", True),
+            email=employee.email.strip(),
+            group=self.cleaned_data.get("groups"),
+            permissions=self.cleaned_data.get("permissions"),
         )
-        user.set_password(self.cleaned_data["temporary_password"])
-        user.save()
-        group = self.cleaned_data.get("groups")
-        if group:
-            sync_role_group_permissions(group)
-            user.groups.set([group])
-        else:
-            user.groups.clear()
-        user.user_permissions.set(self.cleaned_data.get("permissions"))
-        return user
 

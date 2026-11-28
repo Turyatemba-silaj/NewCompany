@@ -1,0 +1,29 @@
+{% extends "webroaster/base.html" %}
+{% load format_values %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="topbar"><h1>{{ title }}</h1></div>
+{% if rows %}
+<div class="table-scroll">
+    <table class="compact-table">
+        <thead><tr><th>Request</th><th>Employee</th><th>Amount</th><th>Action</th></tr></thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td>#{{ row.advance.pk }}</td>
+                <td>{{ row.advance.employee }}</td>
+                <td>UGX {{ row.advance.amount_requested|thousands }}</td>
+                <td>
+                    {% for action, label in row.actions %}
+                    <a class="btn" href="{% url 'webroaster:advance_workflow_action' row.advance.pk action %}">{{ label }}</a>
+                    {% endfor %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="panel"><p>No salary advance requests are awaiting your action.</p></div>
+{% endif %}
+{% endblock %}

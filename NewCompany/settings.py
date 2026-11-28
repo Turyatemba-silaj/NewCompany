@@ -3,6 +3,7 @@
 import os
 import re
 from pathlib import Path
+from django.urls import include, path
 from urllib.parse import urlparse
 
 import dj_database_url
@@ -169,6 +170,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "webroaster",
+    "banking",
 ]
 
 MIDDLEWARE = [
@@ -304,6 +306,22 @@ MEDIA_ROOT = Path(
 LOGIN_URL = "/staff/login/"
 LOGIN_REDIRECT_URL = "/dashboard/"
 COMPANY_NAME = "NewCompany"
+
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "").strip()
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.smtp.EmailBackend",
+)
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", bool(EMAIL_HOST) and EMAIL_PORT == 465)
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", bool(EMAIL_HOST) and EMAIL_PORT == 587)
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "15"))
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    EMAIL_HOST_USER or "webmaster@localhost",
+)
 
 
 SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", not DEBUG)

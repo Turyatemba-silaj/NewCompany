@@ -1,0 +1,6 @@
+STAGING PROTOTYPE — not production ready. Back up files and database first.
+Copy banking/ and install_banking.py into project root on a staging copy.
+Add 'banking' to INSTALLED_APPS in the actual settings module (not supplied).
+Run python install_banking.py; python manage.py makemigrations banking; python manage.py migrate banking; python manage.py check.
+Create Django groups Cashier, Finance Officer, Finance Manager, Head of Finance and Administrator, and assign distinct users. Superusers can view but cannot transact unless explicitly assigned a workflow group. Existing role synchronization may need adaptation; verify it does not remove groups.
+CSV only: date,reference,description,amount; ISO dates, signed UGX amounts, stable unique bank transaction IDs. Duplicate IDs reject entire import. Exact reference, amount and date match existing ERP records; no ERP balances are modified. Manual classifications are evidence notes, not ledger postings. No bank API or payment execution. No salary export, XLSX, notifications, full balance reconciliation or reversal workflow yet. No live testing performed. Missing settings and migration files in source prevent safe production verification. Review and test permissions, concurrency, audit, migrations and reconciliation before deployment.

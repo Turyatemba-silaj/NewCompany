@@ -42,6 +42,52 @@ class AuditLog(models.Model):
         db_table = "audit_logs"
         ordering = ["-created_at", "-audit_id"]
 
+
+class AccessChangeLog(models.Model):
+    """Immutable before-and-after record of administrative access changes."""
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webroaster_access_changes",
+    )
+    affected_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webroaster_access_change_targets",
+    )
+    affected_group = models.ForeignKey(
+        "auth.Group",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="webroaster_access_changes",
+    )
+    action = models.CharField(max_length=40)
+    previous_values = models.JSONField(default=dict)
+    new_values = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise ValidationError("Access change records are immutable.")
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Access change records cannot be deleted.")
+
+    def __str__(self):
+        target = self.affected_user or self.affected_group or "access"
+        return f"{self.action}: {target}"
+
+    class Meta:
+        db_table = "access_change_logs"
+        ordering = ["-created_at", "-id"]
+
+
 class UserPasswordProfile(models.Model):
     """Tracks password age and forced reset state without storing plain-text passwords."""
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="password_profile")

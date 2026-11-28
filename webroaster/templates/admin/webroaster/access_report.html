@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<div id="content-main">
+    <h1>User access report</h1>
+
+    <section>
+        <h2>Vacant workflow roles</h2>
+        {% if vacant_roles %}
+            <ul>{% for role in vacant_roles %}<li>{{ role }}</li>{% endfor %}</ul>
+        {% else %}
+            <p>No vacant role groups.</p>
+        {% endif %}
+    </section>
+
+    <section>
+        <h2>Active accounts missing an employee link</h2>
+        {% if missing_employee_links %}
+            <ul>{% for user in missing_employee_links %}<li>{{ user.username }} ({{ user.email|default:"No email" }})</li>{% endfor %}</ul>
+        {% else %}
+            <p>No active staff accounts are missing an employee link.</p>
+        {% endif %}
+    </section>
+
+    <section>
+        <h2>Staff accounts without a recognized business role</h2>
+        {% if unassigned_role_users %}
+            <ul>{% for user in unassigned_role_users %}<li>{{ user.username }} — no business modules are granted unless a direct permission or admin superuser status applies.</li>{% endfor %}</ul>
+        {% else %}
+            <p>No unassigned staff accounts.</p>
+        {% endif %}
+    </section>
+
+    <section>
+        <h2>Conflicting role assignments</h2>
+        {% if conflicting_assignments %}
+            <ul>
+                {% for conflict in conflicting_assignments %}
+                    <li>{{ conflict.user.username }} — groups: {{ conflict.groups|join:", "|default:"none" }}{% if conflict.expected_group %}; employee role expects {{ conflict.expected_group }}{% endif %}</li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p>No conflicting role assignments found.</p>
+        {% endif %}
+    </section>
+
+    <section>
+        <h2>Effective access by user</h2>
+        <div class="results">
+            <table id="result_list">
+                <thead>
+                    <tr>
+                        <th>User</th><th>Employee</th><th>Groups</th><th>Modules</th><th>Views</th><th>Direct permissions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in access_rows %}
+                        <tr>
+                            <th>{{ row.user.username }}</th>
+                            <td>{{ row.employee|default:"No linked employee" }}</td>
+                            <td>{{ row.groups|join:", "|default:"No role group" }}</td>
+                            <td>{{ row.allowed_models|join:", "|default:"None" }}</td>
+                            <td>{{ row.allowed_views|join:", "|default:"None" }}</td>
+                            <td>{{ row.direct_permissions|join:", "|default:"None" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="6">No staff accounts were found.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endblock %}

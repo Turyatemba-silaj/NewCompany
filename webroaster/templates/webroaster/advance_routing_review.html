@@ -1,0 +1,32 @@
+{% extends "webroaster/base.html" %}
+{% load format_values tz %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="topbar">
+    <h1>{{ title }}</h1>
+    <a class="btn" href="{% url 'webroaster:advance_notifications' %}">Back to notifications</a>
+</div>
+<div class="panel">
+    <dl>
+        <dt>Request</dt><dd>#{{ advance.pk }}</dd>
+        <dt>Employee</dt><dd>{{ advance.employee }}</dd>
+        <dt>Route</dt><dd>{% if route == "head" %}Department head{% else %}Staff{% endif %}</dd>
+        <dt>Amount</dt><dd>UGX {{ advance.amount_requested|thousands }}</dd>
+        <dt>Requested at (EAT)</dt><dd>{{ advance.created_at|timezone:"Africa/Kampala"|date:"j M Y H:i" }}</dd>
+        <dt>Verification</dt><dd>{{ advance.get_verification_status_display }}{% if advance.verified_by %} · {{ advance.verified_by }} · {{ advance.verified_at|timezone:"Africa/Kampala"|date:"j M Y H:i" }} EAT{% endif %}</dd>
+        <dt>Approval</dt><dd>{{ advance.get_approval_status_display }}{% if advance.approved_by %} · {{ advance.approved_by }}{% endif %}{% if advance.decision_at %} · {{ advance.decision_at|timezone:"Africa/Kampala"|date:"j M Y H:i" }} EAT{% endif %}</dd>
+        {% if route == "staff" %}
+        <dt>Payment authorization</dt><dd>{% if advance.payment_authorized_at %}{{ advance.payment_authorized_by }} · {{ advance.payment_authorized_at|timezone:"Africa/Kampala"|date:"j M Y H:i" }} EAT{% else %}Pending{% endif %}</dd>
+        {% endif %}
+        <dt>Payment status</dt><dd>{{ advance.get_status_display }}</dd>
+    </dl>
+    <form method="post">
+        {% csrf_token %}
+        {% if action == "reject" %}
+        <label for="rejection-reason">Reason for rejection</label>
+        <textarea id="rejection-reason" name="reason" required maxlength="1000"></textarea>
+        {% endif %}
+        <button class="btn primary" type="submit">Confirm {{ decision|lower }}</button>
+    </form>
+</div>
+{% endblock %}

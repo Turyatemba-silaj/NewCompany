@@ -38,6 +38,22 @@
             <button class="btn" type="button" data-clear-selection>Clear</button>
         </span>
     </div>
+    {% if model_name == "employees" %}
+<nav aria-label="Employee sections">
+    <a class="btn{% if not staff_group %} primary{% endif %}"
+       href="{% url 'webroaster:list' 'employees' %}">
+        All Employees
+    </a>
+    <a class="btn{% if staff_group == 'shift' %} primary{% endif %}"
+       href="?staff_group=shift">
+        Shift/Wage Earners
+    </a>
+    <a class="btn{% if staff_group == 'salary' %} primary{% endif %}"
+       href="?staff_group=salary">
+        Salary Earners
+    </a>
+</nav>
+{% endif %}
     <div class="table-scroll">
     <table class="{% if model_name == 'incidents' %}compact-table{% endif %}" data-erp-table>
         <thead>

@@ -1,4 +1,4 @@
-{% load static hr_report_access %}
+{% load static hr_report_access banking_access advance_access %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1811,10 +1811,23 @@
                     <a class="nav-link {% if not active_model %}active{% endif %}" href="{% url 'webroaster:home' %}">
                         <i class="bi bi-speedometer2" aria-hidden="true"></i><span>Dashboard</span>
                     </a>
+                    {% can_open_advance_queue request.user as show_advance_queue %}
+                    {% if show_advance_queue %}
+                        <a class="nav-link {% if request.resolver_match.url_name == 'advance_notifications' or request.resolver_match.url_name == 'advance_workflow_action' or request.resolver_match.url_name == 'advance_notification_action' %}active{% endif %}"
+                           href="{% url 'webroaster:advance_notifications' %}">
+                            <i class="bi bi-bell" aria-hidden="true"></i><span>Salary Advance Notifications</span>
+                        </a>
+                    {% endif %}
                     {% can_open_hr_reports request.user as show_hr_reports %}
                     {% if show_hr_reports %}
                         <a class="nav-link {% if request.resolver_match.url_name == 'hr_reports' %}active{% endif %}" href="{% url 'webroaster:hr_reports' %}">
                             <i class="bi bi-people" aria-hidden="true"></i><span>HR Reports</span>
+                        </a>
+                    {% endif %}
+                    {% banking_visible request.user as show_banking %}
+                    {% if show_banking %}
+                        <a class="nav-link {% if request.resolver_match.namespace == 'banking' %}active{% endif %}" href="{% url 'banking:index' %}">
+                            <i class="bi bi-bank" aria-hidden="true"></i><span>Banking &amp; Reconciliation</span>
                         </a>
                     {% endif %}
                     {% if request.user.is_superuser %}

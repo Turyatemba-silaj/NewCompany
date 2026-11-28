@@ -1,12 +1,33 @@
 ﻿from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
+from django.contrib.auth.models import Group
+from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Q
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils import timezone
+from django.utils.html import format_html_join
+from zoneinfo import ZoneInfo
+
 try:
     from unfold.admin import ModelAdmin, TabularInline
 except ModuleNotFoundError:
     ModelAdmin = admin.ModelAdmin
     TabularInline = admin.TabularInline
+
+from .access import (
+    MODEL_PERMISSION_NAMES,
+    ROLE_GROUPS,
+    change_group_permissions,
+    change_user_access,
+    employee_for_user,
+    user_allowed_models,
+    user_allowed_views,
+)
 from .models import (
     # Operations Department
-    AuditLog, Notification, WorkflowAction, ClientUserAccess, Client, Contract, ContractDeliverable, Region, Site, SitePost, SiteRiskAssessment, Shift, Asset, AssetAssignment, Incident, IncidentNotification, Patrol_Log, PatrolRoute, PatrolCheckpoint, PatrolSession, PatrolCheckpointVisit, Deployment, DeploymentArea, Roster, RosterAssignment, SupervisorVisit, GuardPresenceVerification,
+    AccessChangeLog, AuditLog, Notification, WorkflowAction, ClientUserAccess, Client, Contract, ContractDeliverable, Region, Site, SitePost, SiteRiskAssessment, Shift, Asset, AssetAssignment, Incident, IncidentNotification, Patrol_Log, PatrolRoute, PatrolCheckpoint, PatrolSession, PatrolCheckpointVisit, Deployment, DeploymentArea, Roster, RosterAssignment, SupervisorVisit, GuardPresenceVerification,
     # Human Resources Department
     Role, Position, Employee, Guard, Supervisor, Training, Attendance, Leave, 
     Disciplinary_Action, DisciplinaryNotification, Performance_Evaluation, Document, EmployeeComplianceRecord, ExitClearance, LeaveNotification,
@@ -17,6 +38,304 @@ from .models import (
 
 
 # ==================== GOVERNANCE AND AUDIT ====================
+
+ROLE_GROUP_BY_EMPLOYEE_ROLE = {
+    "supervisor": "Supervisor",
+    "manager": "Operations Manager",
+    "operations_officer": "Operations Manager",
+    "hr_officer": "Human Resources",
+    "finance_officer": "Finance Officer",
+    "administrator": "Head of Finance",
+}
+
+
+def permission_module_label(permission):
+    model_name = permission.content_type.model
+    for role_name, label in (
+        ("Finance Officer", "Finance"),
+        ("Human Resources", "Human Resources"),
+        ("Operations Manager", "Operations"),
+        ("Supervisor", "Operations"),
+    ):
+        model_names = {
+            MODEL_PERMISSION_NAMES[slug]
+            for slug in ROLE_GROUPS[role_name]["models"]
+            if slug in MODEL_PERMISSION_NAMES
+        }
+        if model_name in model_names:
+            return label
+    return permission.content_type.app_label.title()
+
+
+@admin.register(AccessChangeLog)
+class AccessChangeLogAdmin(admin.ModelAdmin):
+    list_display = ("action", "actor", "affected_user", "affected_group", "created_at_eat")
+    list_filter = ("action", "created_at")
+    search_fields = ("actor__username", "affected_user__username", "affected_group__name", "action")
+    readonly_fields = (
+        "actor",
+        "affected_user",
+        "affected_group",
+        "action",
+        "previous_values",
+        "new_values",
+        "created_at_eat",
+    )
+    ordering = ("-created_at", "-id")
+
+    @admin.display(description="Timestamp (EAT)", ordering="created_at")
+    def created_at_eat(self, obj):
+        return timezone.localtime(obj.created_at, ZoneInfo("Africa/Kampala"))
+
+    def has_module_permission(self, request):
+        return self.has_view_permission(request)
+
+    def has_view_permission(self, request, obj=None):
+        return request.user.is_superuser or request.user.has_perm("webroaster.view_accesschangelog")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class AccessManagedUserAdmin(DjangoUserAdmin):
+    list_display = (
+        "username",
+        "email",
+        "linked_employee",
+        "group_names",
+        "is_active",
+        "last_login",
+    )
+    list_filter = ("is_active", "groups")
+    search_fields = ("username", "email", "first_name", "last_name", "groups__name")
+    ordering = ("username",)
+    filter_horizontal = ("groups",)
+    readonly_fields = ("password", "last_login", "date_joined")
+    fieldsets = (
+        (None, {"fields": ("username", "password")}),
+        ("Personal info", {"fields": ("first_name", "last_name", "email")}),
+        ("Access", {"fields": ("is_active", "groups")}),
+        ("Important dates", {"fields": ("last_login", "date_joined")}),
+    )
+    change_list_template = "admin/auth/user/access_change_list.html"
+
+    @admin.display(description="Linked employee")
+    def linked_employee(self, user):
+        employee = employee_for_user(user)
+        return str(employee) if employee else "No linked employee"
+
+    @admin.display(description="Groups")
+    def group_names(self, user):
+        return ", ".join(user.groups.values_list("name", flat=True)) or "No role group"
+
+    def get_search_results(self, request, queryset, search_term):
+        queryset, use_distinct = super().get_search_results(request, queryset, search_term)
+        if search_term:
+            employees = Employee.objects.filter(employee_number__iexact=search_term)
+            employee_numbers = employees.values_list("employee_number", flat=True)
+            employee_emails = employees.exclude(email="").values_list("email", flat=True)
+            queryset |= self.model.objects.filter(
+                Q(username__in=employee_numbers) | Q(email__in=employee_emails)
+            )
+        return queryset, use_distinct
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            change_user_access(
+                request.user,
+                obj,
+                groups=form.cleaned_data["groups"],
+                is_active=form.cleaned_data["is_active"],
+                action="update_user_access",
+            )
+        super().save_model(request, obj, form, change)
+
+    def get_urls(self):
+        return [
+            path(
+                "access-report/",
+                self.admin_site.admin_view(self.access_report_view),
+                name="auth_user_access_report",
+            ),
+        ] + super().get_urls()
+
+    def access_report_view(self, request):
+        if not (
+            request.user.is_superuser
+            or (
+                request.user.has_perm("auth.view_user")
+                and request.user.has_perm("auth.view_group")
+            )
+        ):
+            raise PermissionDenied("You are not authorized to view the access report.")
+
+        User = get_user_model()
+        users = User.objects.filter(is_staff=True).prefetch_related(
+            "groups",
+            "user_permissions__content_type",
+        ).order_by("username")
+        access_rows = []
+        missing_employee_links = []
+        conflicting_assignments = []
+        unassigned_role_users = []
+        for user in users:
+            employee = employee_for_user(user)
+            groups = sorted(user.groups.values_list("name", flat=True))
+            recognized_groups = sorted(set(groups).intersection(ROLE_GROUPS))
+            direct_permissions = sorted(
+                f"{permission.content_type.app_label}.{permission.codename}"
+                for permission in user.user_permissions.all()
+            )
+            allowed_models = user_allowed_models(user)
+            allowed_views = user_allowed_views(user)
+            access_rows.append(
+                {
+                    "user": user,
+                    "employee": employee,
+                    "groups": groups,
+                    "allowed_models": (
+                        ["All modules (superuser)"]
+                        if allowed_models is None
+                        else sorted(allowed_models)
+                    ),
+                    "allowed_views": (
+                        ["All views (superuser)"]
+                        if allowed_views is None
+                        else sorted(allowed_views)
+                    ),
+                    "direct_permissions": direct_permissions,
+                }
+            )
+            if user.is_active and not employee:
+                missing_employee_links.append(user)
+            if not user.is_superuser and not recognized_groups:
+                unassigned_role_users.append(user)
+            expected_group = ROLE_GROUP_BY_EMPLOYEE_ROLE.get(
+                getattr(employee, "role", "")
+            )
+            if len(recognized_groups) > 1 or (
+                expected_group and expected_group not in recognized_groups
+            ):
+                conflicting_assignments.append(
+                    {
+                        "user": user,
+                        "employee": employee,
+                        "groups": groups,
+                        "expected_group": expected_group,
+                    }
+                )
+
+        vacant_roles = []
+        for role_name in ROLE_GROUPS:
+            role_group = Group.objects.filter(name=role_name).first()
+            if not role_group or not role_group.user_set.filter(is_active=True).exists():
+                vacant_roles.append(role_name)
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "User access report",
+            "access_rows": access_rows,
+            "missing_employee_links": missing_employee_links,
+            "unassigned_role_users": unassigned_role_users,
+            "vacant_roles": vacant_roles,
+            "conflicting_assignments": conflicting_assignments,
+        }
+        return TemplateResponse(request, "admin/webroaster/access_report.html", context)
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["access_report_url"] = reverse("admin:auth_user_access_report")
+        return super().changelist_view(request, extra_context=extra_context)
+
+
+admin.site.unregister(Group)
+
+
+@admin.register(Group)
+class AccessManagedGroupAdmin(admin.ModelAdmin):
+    list_display = ("name", "member_list", "active_member_count", "permissions_by_module")
+    search_fields = ("name", "permissions__name", "permissions__codename")
+    filter_horizontal = ("permissions",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            active_member_total=Count(
+                "user",
+                filter=Q(user__is_active=True),
+                distinct=True,
+            )
+        )
+
+    @admin.display(description="Members")
+    def member_list(self, group):
+        names = group.user_set.order_by("username").values_list("username", flat=True)
+        return ", ".join(names) or "No members"
+
+    @admin.display(description="Active members", ordering="active_member_total")
+    def active_member_count(self, group):
+        return group.active_member_total
+
+    @admin.display(description="Permissions by module")
+    def permissions_by_module(self, group):
+        grouped = {}
+        for permission in group.permissions.select_related("content_type").order_by(
+            "content_type__app_label",
+            "content_type__model",
+            "codename",
+        ):
+            module = permission_module_label(permission)
+            grouped.setdefault(module, []).append(permission.name)
+        return format_html_join(
+            "<br>",
+            "<strong>{}</strong>: {}",
+            (
+                (module, ", ".join(names))
+                for module, names in grouped.items()
+            ),
+        ) or "No permissions"
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_manytomany(db_field, request, **kwargs)
+        if db_field.name == "permissions" and formfield:
+            grouped = {}
+            for permission in formfield.queryset.select_related("content_type").order_by(
+                "content_type__app_label",
+                "content_type__model",
+                "codename",
+            ):
+                module = permission_module_label(permission)
+                grouped.setdefault(module, []).append(
+                    (str(permission.pk), str(permission))
+                )
+            formfield.choices = [
+                (module, choices) for module, choices in grouped.items()
+            ]
+        return formfield
+
+    def save_related(self, request, form, formsets, change):
+        change_group_permissions(
+            request.user,
+            form.instance,
+            form.cleaned_data["permissions"],
+            adding=not change,
+        )
+        super().save_related(request, form, formsets, change)
+
+
+admin.site.unregister(get_user_model())
+admin.site.register(get_user_model(), AccessManagedUserAdmin)
 
 @admin.register(AuditLog)
 class AuditLogAdmin(ModelAdmin):
@@ -182,8 +501,19 @@ class SupervisorInline(TabularInline):
 
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin):
-    list_display = ('employee_id', 'employee_number', 'first_name', 'last_name', 'role', 'position', 'department', 'daily_rate', 'is_reliever', 'email', 'nssf_number', 'status', 'hire_date')
-    list_filter = ('status', 'role', 'is_reliever', 'position', 'department', 'hire_date', 'gender')
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if not request.user.is_superuser:
+            return (*fields, "advance_supervisor", "is_department_head")
+        return fields
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "advance_supervisor":
+            kwargs["queryset"] = Employee.objects.filter(status="active").order_by("employee_number")
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    list_display = ('employee_id', 'employee_number', 'first_name', 'last_name', 'role', 'position', 'department', 'daily_rate', 'email', 'nssf_number', 'status', 'hire_date')
+    list_filter = ('status', 'role', 'position', 'department', 'hire_date', 'gender')
     search_fields = ('employee_number', 'first_name', 'last_name', 'email', 'national_id', 'nssf_number')
     readonly_fields = ('employee_number', 'salary_scale', 'daily_rate', 'created_at', 'updated_at')
     ordering = ('employee_id',)
@@ -288,6 +618,26 @@ class PayrollDeductionAdmin(ModelAdmin):
 
 @admin.register(Advance)
 class AdvanceAdmin(ModelAdmin):
+    readonly_fields = (
+        "installment_amount", "approval_status", "approved_by", "decision_at",
+        "verification_status", "verified_by", "verified_at", "status", "disbursement_date",
+        "routing_path", "payment_authorized_by", "payment_authorized_at", "paid_by", "paid_at",
+    )
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = super().get_readonly_fields(request, obj)
+        if not obj:
+            return fields
+        fields = (*fields, "employee")
+        if obj.verification_status != "pending" or obj.status != "pending":
+            fields = (*fields, "amount_requested")
+        return fields
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not change:
+            obj.notify_submission()
+
     list_display = ('advance_id', 'employee', 'amount_requested', 'installment_amount', 'balance', 'approval_status', 'status')
     list_filter = ('approval_status', 'status', 'created_at')
     search_fields = ('employee__first_name', 'employee__last_name', 'strengths', 'areas_for_improvement', 'goals')
